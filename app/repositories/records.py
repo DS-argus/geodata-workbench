@@ -104,6 +104,10 @@ def list_jobs(session: Session) -> list[JobRecord]:
     return list(session.scalars(stmt).all())
 
 
+def get_job(session: Session, job_id: int) -> JobRecord | None:
+    return session.get(JobRecord, job_id)
+
+
 def delete_file_and_related(session: Session, file_id: int) -> str | None:
     file_record = session.get(FileRecord, file_id)
     if file_record is None:

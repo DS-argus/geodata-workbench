@@ -5,8 +5,10 @@ description = "Local geodata upload, conversion, and visualization dashboard"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "uvicorn>=0.35.0",
+  "python-multipart>=0.0.20",
+  "fastapi>=0.116.0",
   "alembic>=1.14.0",
-  "folium>=0.19.5",
   "geopandas>=1.0.1",
   "openpyxl>=3.1.5",
   "pandas>=2.2.3",
@@ -16,8 +18,6 @@ dependencies = [
   "pyogrio>=0.10.0",
   "python-dotenv>=1.0.1",
   "sqlalchemy>=2.0.36",
-  "streamlit>=1.41.1",
-  "streamlit-folium>=0.24.0",
   "xlrd>=2.0.1",
 ]
 

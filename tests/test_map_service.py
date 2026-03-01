@@ -5,7 +5,7 @@ from pathlib import Path
 import geopandas as gpd
 from shapely.geometry import Point, Polygon
 
-from app.services.map_service import MAX_MAP_FEATURES, _sample_for_map, build_map, load_geodata
+from app.services.map_service import MAX_MAP_FEATURES, _sample_for_map, load_geodata
 
 
 def test_load_geodata_from_parquet(tmp_path: Path) -> None:
@@ -19,15 +19,7 @@ def test_load_geodata_from_parquet(tmp_path: Path) -> None:
     assert loaded.crs.to_epsg() == 4326
 
 
-def test_build_map_returns_folium_map() -> None:
-    gdf = gpd.GeoDataFrame({"name": ["a"]}, geometry=[Point(126.9780, 37.5665)], crs="EPSG:4326")
-
-    fmap = build_map([("layer-a", gdf)])
-
-    assert fmap is not None
-
-
-def test_build_map_handles_invalid_geometry() -> None:
+def test_load_geodata_handles_invalid_geometry(tmp_path: Path) -> None:
     # Self-intersection polygon ("bowtie"), which is invalid.
     invalid_polygon = Polygon(
         [
@@ -39,10 +31,13 @@ def test_build_map_handles_invalid_geometry() -> None:
         ]
     )
     gdf = gpd.GeoDataFrame({"name": ["invalid"]}, geometry=[invalid_polygon], crs="EPSG:4326")
+    path = tmp_path / "invalid.parquet"
+    gdf.to_parquet(path, index=False)
 
-    fmap = build_map([("invalid-layer", gdf)])
+    loaded = load_geodata(path)
 
-    assert fmap is not None
+    assert len(loaded) == 1
+    assert loaded.geometry.iloc[0].is_valid
 
 
 def test_sample_for_map_limits_large_layers() -> None:

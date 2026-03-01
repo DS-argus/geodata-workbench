@@ -10,13 +10,27 @@ import geopandas as gpd
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from app.repositories import create_dataset, create_file, create_job, get_file, update_job
+from app.repositories import create_dataset, create_file, create_job, get_file, get_job, update_job
+from app.services.path_service import resolve_record_path
 from app.services.storage_service import allocate_output_path
 
 
 SUPPORTED_VECTOR_EXTENSIONS = {".zip"}
 SUPPORTED_TABULAR_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 SUPPORTED_OUTPUT_FORMATS = {"geoparquet", "gpkg"}
+
+
+class ConversionCancelledError(RuntimeError):
+    pass
+
+
+def _ensure_not_cancelled(
+    cancel_check: Callable[[], bool] | None,
+    *,
+    stage: str,
+) -> None:
+    if cancel_check and cancel_check():
+        raise ConversionCancelledError(f"Conversion cancelled during {stage}.")
 
 
 def _has_shapefile_bundle(paths: list[Path]) -> bool:
@@ -154,6 +168,8 @@ def convert_file(
     csv_lat_col: str | None = None,
     csv_lon_col: str | None = None,
     csv_input_crs: str = "EPSG:4326",
+    job_id: int | None = None,
+    cancel_check: Callable[[], bool] | None = None,
     progress_callback: Callable[[str, int], None] | None = None,
 ) -> int:
     if output_format not in SUPPORTED_OUTPUT_FORMATS:
@@ -163,28 +179,41 @@ def convert_file(
     if input_record is None:
         raise ValueError(f"Input file id {input_file_id} does not exist.")
 
-    input_path = Path(input_record.path)
+    input_path = resolve_record_path(input_record.path, category_hint="rawdata")
     if not input_path.exists():
         raise ValueError(f"Input file path does not exist: {input_path}")
 
-    job = create_job(
-        session,
-        job_type="convert",
-        status="running",
-        input_file_id=input_record.id,
-        params_json={
-            "output_format": output_format,
-            "target_crs": target_crs,
-            "csv_lat_col": csv_lat_col,
-            "csv_lon_col": csv_lon_col,
-            "csv_input_crs": csv_input_crs,
-        },
-    )
+    if job_id is None:
+        job = create_job(
+            session,
+            job_type="convert",
+            status="running",
+            input_file_id=input_record.id,
+            params_json={
+                "output_format": output_format,
+                "target_crs": target_crs,
+                "csv_lat_col": csv_lat_col,
+                "csv_lon_col": csv_lon_col,
+                "csv_input_crs": csv_input_crs,
+            },
+        )
+    else:
+        job = get_job(session, job_id)
+        if job is None:
+            raise ValueError(f"Job id {job_id} does not exist.")
+        job.status = "running"
+        job.error_message = None
+        job.finished_at = None
+        session.add(job)
+        session.flush()
+
+    _ensure_not_cancelled(cancel_check, stage="startup")
     if progress_callback:
         progress_callback("Conversion job started", 5)
 
     try:
         suffix = input_path.suffix.lower()
+        _ensure_not_cancelled(cancel_check, stage="input read")
         if progress_callback:
             progress_callback("Reading input dataset", 20)
         if suffix in SUPPORTED_TABULAR_EXTENSIONS:
@@ -209,6 +238,7 @@ def convert_file(
         else:
             raise ValueError(f"Unsupported input format: {suffix}")
 
+        _ensure_not_cancelled(cancel_check, stage="CRS preparation")
         if progress_callback:
             progress_callback("Preparing CRS transformation", 45)
         if target_crs:
@@ -216,6 +246,7 @@ def convert_file(
                 raise ValueError("Input data has no CRS. Cannot transform without source CRS.")
             gdf = gdf.to_crs(target_crs)
 
+        _ensure_not_cancelled(cancel_check, stage="output write")
         if progress_callback:
             progress_callback("Writing converted dataset", 70)
         output_path = _write_output(
@@ -255,6 +286,9 @@ def convert_file(
         if progress_callback:
             progress_callback("Conversion completed", 100)
         return output_record.id
+    except ConversionCancelledError as exc:
+        update_job(session, job, status="cancelled", error_message=str(exc))
+        raise
     except Exception as exc:
         update_job(session, job, status="failed", error_message=str(exc))
         raise

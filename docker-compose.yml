@@ -16,10 +16,11 @@ services:
       timeout: 5s
       retries: 20
 
-  app:
+  api:
     build:
       context: .
-    container_name: geodata-app
+      dockerfile: apps/api/Dockerfile
+    container_name: geodata-api
     depends_on:
       db:
         condition: service_healthy
@@ -27,12 +28,27 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/geodata
       PROJECT_ROOT: /workspace
     ports:
-      - "8501:8501"
+      - "8000:8000"
     volumes:
       - ./:/workspace
       - ./rawdata:/workspace/rawdata
       - ./data:/workspace/data
-    command: sh -c "alembic upgrade head && streamlit run app/main.py --server.address 0.0.0.0 --server.port 8501"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: geodata-web
+    depends_on:
+      - api
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./apps/web:/workspace/apps/web
+      - /workspace/apps/web/node_modules
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
 
 volumes:
   pgdata:
