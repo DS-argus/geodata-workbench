@@ -1,0 +1,4 @@
+[server]
+# Increase upload/message limits for large geospatial files.
+maxUploadSize = 4096
+maxMessageSize = 4096

@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: geodata-db
+    environment:
+      POSTGRES_DB: geodata
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d geodata"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+    container_name: geodata-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/geodata
+      PROJECT_ROOT: /workspace
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./:/workspace
+      - ./rawdata:/workspace/rawdata
+      - ./data:/workspace/data
+    command: sh -c "alembic upgrade head && streamlit run app/main.py --server.address 0.0.0.0 --server.port 8501"
+
+volumes:
+  pgdata:
