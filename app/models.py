@@ -36,6 +36,8 @@ class JobRecord(Base):
     output_file_id: Mapped[int | None] = mapped_column(ForeignKey("files.id"), nullable=True)
     params_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    progress_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -53,4 +55,21 @@ class DatasetRecord(Base):
     properties_schema_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AppSecretRecord(Base):
+    __tablename__ = "app_secrets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    secret_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )

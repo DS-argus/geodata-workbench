@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import DatasetRecord, FileRecord, JobRecord
+from app.models import AppSecretRecord, DatasetRecord, FileRecord, JobRecord
 
 
 def create_file(
@@ -55,6 +55,8 @@ def create_job(
         status=status,
         input_file_id=input_file_id,
         params_json=params_json,
+        progress_percent=0,
+        progress_message=None,
     )
     session.add(record)
     session.flush()
@@ -68,11 +70,34 @@ def update_job(
     status: str,
     output_file_id: int | None = None,
     error_message: str | None = None,
+    progress_percent: int | None = None,
+    progress_message: str | None = None,
 ) -> JobRecord:
     job.status = status
     job.output_file_id = output_file_id
     job.error_message = error_message
+    if progress_percent is not None:
+        job.progress_percent = max(0, min(100, int(progress_percent)))
+    elif status == "succeeded":
+        job.progress_percent = 100
+    if progress_message is not None:
+        job.progress_message = progress_message
     job.finished_at = datetime.now(tz=timezone.utc)
+    session.add(job)
+    session.flush()
+    return job
+
+
+def set_job_progress(
+    session: Session,
+    job: JobRecord,
+    *,
+    progress_percent: int,
+    progress_message: str | None = None,
+) -> JobRecord:
+    job.progress_percent = max(0, min(100, int(progress_percent)))
+    if progress_message is not None:
+        job.progress_message = progress_message
     session.add(job)
     session.flush()
     return job
@@ -128,3 +153,19 @@ def dataset_feature_count_map(session: Session) -> dict[int, int]:
     stmt = select(DatasetRecord.file_id, DatasetRecord.feature_count)
     rows = session.execute(stmt).all()
     return {int(file_id): int(feature_count) for file_id, feature_count in rows}
+
+
+def get_secret(session: Session, secret_key: str) -> AppSecretRecord | None:
+    stmt = select(AppSecretRecord).where(AppSecretRecord.secret_key == secret_key)
+    return session.scalars(stmt).first()
+
+
+def upsert_secret(session: Session, secret_key: str, encrypted_value: str) -> AppSecretRecord:
+    record = get_secret(session, secret_key)
+    if record is None:
+        record = AppSecretRecord(secret_key=secret_key, encrypted_value=encrypted_value)
+    else:
+        record.encrypted_value = encrypted_value
+    session.add(record)
+    session.flush()
+    return record

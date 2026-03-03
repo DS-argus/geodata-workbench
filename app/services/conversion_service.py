@@ -211,6 +211,7 @@ def convert_file(
     if progress_callback:
         progress_callback("Conversion job started", 5)
 
+    output_path: Path | None = None
     try:
         suffix = input_path.suffix.lower()
         _ensure_not_cancelled(cancel_check, stage="input read")
@@ -235,6 +236,8 @@ def convert_file(
                 )
         elif input_path.is_dir() or suffix in SUPPORTED_VECTOR_EXTENSIONS:
             gdf = _read_vector(input_path)
+            if gdf.crs is None:
+                raise ValueError("Input vector data has no CRS. Please provide data with a valid CRS definition.")
         else:
             raise ValueError(f"Unsupported input format: {suffix}")
 
@@ -287,8 +290,12 @@ def convert_file(
             progress_callback("Conversion completed", 100)
         return output_record.id
     except ConversionCancelledError as exc:
+        if output_path is not None and output_path.exists():
+            output_path.unlink(missing_ok=True)
         update_job(session, job, status="cancelled", error_message=str(exc))
         raise
     except Exception as exc:
+        if output_path is not None and output_path.exists():
+            output_path.unlink(missing_ok=True)
         update_job(session, job, status="failed", error_message=str(exc))
         raise
