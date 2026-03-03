@@ -10,7 +10,7 @@
 - `db`: PostgreSQL + PostGIS (포트 5432)
 - 원본 파일 저장: `rawdata/`
 - 변환 결과 저장: `data/`
-- DB에는 메타데이터(`files`, `jobs`, `datasets`)만 저장, 공간 본문은 파일로 저장
+- DB에는 메타데이터(`files`, `jobs`, `datasets`, `app_secrets`)만 저장, 공간 본문은 파일로 저장
 
 ## 2) Docker 운영
 
@@ -90,6 +90,9 @@ cd apps/web && npm run build
 
 ## 7) 운영 메모
 
-- 대용량 변환은 시간이 걸릴 수 있으며, Convert 탭에서 중단 요청 가능
+- Upload에서 자동 변환이 실행되며 CSV/Excel은 위경도 컬럼 지정 후 변환됨
+- WFS 수집도 백그라운드 Job으로 실행되며 WFS 탭에서 중단 요청 가능
+- VWorld API 키는 UI 입력 시 서버에서 암호화되어 `app_secrets` 테이블에 저장됨
+- `.env`의 `VWORLD_API_KEY`가 있으면 해당 키를 우선 사용
 - 지도 렌더링은 선택한 `display rows`에 따라 성능이 크게 달라짐
 - `rawdata/`, `data/`는 운영 데이터 경로이므로 백업 정책 필요
