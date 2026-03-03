@@ -259,6 +259,8 @@ def _data_table_df() -> pd.DataFrame:
                 "total_rows",
                 "display_name",
                 "source_type",
+                "filter_summary",
+                "filter_detail_text",
             ]
         )
 
@@ -281,6 +283,8 @@ def _data_table_df() -> pd.DataFrame:
 
     source_name_by_output: dict[int, str] = {}
     source_type_by_output: dict[int, str] = {}
+    filter_summary_by_output: dict[int, str] = {}
+    filter_detail_by_output: dict[int, str] = {}
     for job in jobs:
         if job.status != "succeeded" or job.output_file_id is None:
             continue
@@ -294,6 +298,9 @@ def _data_table_df() -> pd.DataFrame:
             layer_key = str(params.get("layer_key", "")).strip()
             source_name_by_output[job.output_file_id] = wfs_name_map.get(layer_key, layer_key)
             source_type_by_output[job.output_file_id] = "wfs"
+            summary, detail = _wfs_filter_summary(params.get("filters"))
+            filter_summary_by_output[job.output_file_id] = summary
+            filter_detail_by_output[job.output_file_id] = detail
         else:
             source_name_by_output[job.output_file_id] = ""
             source_type_by_output[job.output_file_id] = "unknown"
@@ -316,6 +323,11 @@ def _data_table_df() -> pd.DataFrame:
                 source_type = "local_convert"
             else:
                 source_type = "local_convert"
+        filter_summary = filter_summary_by_output.get(row.id, "")
+        filter_detail = filter_detail_by_output.get(row.id, "")
+        if source_type != "wfs":
+            filter_summary = ""
+            filter_detail = ""
         records.append(
             {
                 "file_id": row.id,
@@ -331,6 +343,8 @@ def _data_table_df() -> pd.DataFrame:
                 "total_rows": int(feature_count_map.get(row.id, 0)),
                 "display_name": _data_display_name(str(resolved_path)),
                 "source_type": source_type,
+                "filter_summary": filter_summary,
+                "filter_detail_text": filter_detail,
             }
         )
     return pd.DataFrame.from_records(records).sort_values(by="id", ascending=True)
@@ -396,6 +410,55 @@ def _geom_type(gdf) -> str | None:
         return None
     geom_types = sorted({str(value) for value in gdf.geom_type.dropna().unique()})
     return ",".join(geom_types) if geom_types else None
+
+
+def _format_bbox_value(raw_bbox: Any) -> str:
+    if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
+        return "BBOX"
+    try:
+        numbers = [float(value) for value in raw_bbox]
+    except Exception:
+        return "BBOX"
+    return f"BBOX({numbers[0]:.5f},{numbers[1]:.5f},{numbers[2]:.5f},{numbers[3]:.5f})"
+
+
+def _wfs_filter_text_list(filters: Any) -> list[str]:
+    if not isinstance(filters, list):
+        return []
+    parts: list[str] = []
+    for index, item in enumerate(filters):
+        if not isinstance(item, dict):
+            continue
+        ftype = str(item.get("type", "")).upper()
+        join = str(item.get("join_with_prev") or "AND").upper()
+        join_prefix = f"{join} " if index > 0 else ""
+        if ftype == "EQ":
+            column = str(item.get("column") or "").strip()
+            value = str(item.get("value") or "").strip()
+            if column:
+                parts.append(f"{join_prefix}{column} = {value}")
+        elif ftype == "LIKE":
+            column = str(item.get("column") or "").strip()
+            value = str(item.get("value") or "").strip()
+            if column and value:
+                parts.append(f"{join_prefix}{column} LIKE {value}")
+        elif ftype == "BBOX":
+            geom_column = str(item.get("geom_column") or item.get("column") or "ag_geom")
+            bbox_label = _format_bbox_value(item.get("bbox") or item.get("value"))
+            parts.append(f"{join_prefix}{geom_column} {bbox_label}")
+    return parts
+
+
+def _wfs_filter_summary(filters: Any) -> tuple[str, str]:
+    parts = _wfs_filter_text_list(filters)
+    if not parts:
+        return "전체", "필터 없음"
+    detail = "\n".join(parts)
+    if len(parts) == 1:
+        summary = parts[0]
+    else:
+        summary = f"{parts[0]} · +{len(parts) - 1}개"
+    return summary, detail
 
 
 def _delete_path(path: Path) -> None:

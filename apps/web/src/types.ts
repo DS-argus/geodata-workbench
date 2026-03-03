@@ -12,6 +12,8 @@ export type ListItem = {
   total_rows?: number;
   display_name?: string;
   source_type?: "local_convert" | "wfs" | "unknown";
+  filter_summary?: string;
+  filter_detail_text?: string;
   conversion_status?: string;
   conversion_output_file_id?: number | null;
   conversion_output_name?: string;

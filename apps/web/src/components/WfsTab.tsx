@@ -15,12 +15,15 @@ import { useAppStore } from "../store";
 import type { WfsFilter } from "../types";
 import { DataTable, formatMb, PaginationRow } from "./TableShell";
 import { LoadingModal } from "./LoadingModal";
+import { WfsBboxPicker } from "./WfsBboxPicker";
 
 type WfsUiFilter = {
-  type: "EQ" | "LIKE";
+  type: "EQ" | "LIKE" | "BBOX";
   join_with_prev: "AND" | "OR";
   column: string;
   value: string;
+  bbox?: [number, number, number, number];
+  geom_column?: string;
 };
 
 function makeEmptyFilter(): WfsUiFilter {
@@ -114,6 +117,11 @@ export function WfsTab() {
     () => layers.find((item) => item.key === selectedLayerKey),
     [layers, selectedLayerKey]
   );
+  const bboxFilterIndex = useMemo(
+    () => filterDraft.findIndex((item) => item.type === "BBOX"),
+    [filterDraft]
+  );
+  const bboxFilter = bboxFilterIndex >= 0 ? filterDraft[bboxFilterIndex] : null;
 
   useEffect(() => {
     if (!layers.length) {
@@ -172,6 +180,11 @@ export function WfsTab() {
       size: formatMb(item.size_bytes),
       rows: (item.total_rows ?? 0).toLocaleString(),
       crs: item.crs || "-",
+      filters: (
+        <span className="wfs-filter-cell" title={item.filter_detail_text || item.filter_summary || "필터 없음"}>
+          {item.filter_summary || "전체"}
+        </span>
+      ),
       created: item.created_at,
       path: item.path
     }));
@@ -211,9 +224,28 @@ export function WfsTab() {
       return;
     }
 
+    const bboxFilterCount = filterDraft.filter((item) => item.type === "BBOX").length;
+    if (bboxFilterCount > 1) {
+      setError("BBOX 필터는 1개만 사용할 수 있습니다.");
+      return;
+    }
+
     const normalizedFilters: WfsFilter[] = [];
     for (let i = 0; i < filterDraft.length; i += 1) {
       const current = filterDraft[i];
+      if (current.type === "BBOX") {
+        if (!current.bbox || current.bbox.length !== 4) {
+          setError("BBOX 필터의 영역을 먼저 선택해 주세요. (Shift/Ctrl + 드래그)");
+          return;
+        }
+        normalizedFilters.push({
+          type: "BBOX",
+          bbox: current.bbox,
+          geom_column: current.geom_column || "ag_geom",
+          join_with_prev: i === 0 ? undefined : current.join_with_prev
+        });
+        continue;
+      }
       const column = current.column.trim();
       const value = current.value.trim();
       if (!column && !value) {
@@ -313,7 +345,7 @@ export function WfsTab() {
       {isCollectModalOpen && selectedLayer && (
         <div className="dialog-backdrop" onClick={() => setIsCollectModalOpen(false)}>
           <div className="dialog-card wfs-collect-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="dialog-head">
+            <div className="dialog-head wfs-collect-head">
               <h4>WFS 수집 조건 설정</h4>
               <button className="icon-btn" onClick={() => setIsCollectModalOpen(false)} aria-label="닫기">
                 ✕
@@ -362,51 +394,108 @@ export function WfsTab() {
                   <select
                     value={filter.type}
                     onChange={(e) => {
+                      const nextType = e.target.value as "EQ" | "LIKE" | "BBOX";
+                      if (nextType === "BBOX" && filterDraft.some((item, idx) => idx !== index && item.type === "BBOX")) {
+                        setError("BBOX 필터는 1개만 사용할 수 있습니다.");
+                        return;
+                      }
                       const next = [...filterDraft];
-                      next[index] = { ...next[index], type: e.target.value as "EQ" | "LIKE" };
+                      next[index] = {
+                        ...next[index],
+                        type: nextType,
+                        column: nextType === "BBOX" ? "" : next[index].column,
+                        value: nextType === "BBOX" ? "" : next[index].value,
+                        bbox: nextType === "BBOX" ? next[index].bbox : undefined,
+                        geom_column: nextType === "BBOX" ? next[index].geom_column || "ag_geom" : undefined
+                      };
                       setFilterDraft(next);
+                      setError("");
                     }}
                   >
                     <option value="EQ">EQ</option>
                     <option value="LIKE">LIKE</option>
+                    <option value="BBOX">BBOX</option>
                   </select>
 
-                  <select
-                    value={filter.column}
-                    onChange={(e) => {
-                      const next = [...filterDraft];
-                      next[index] = { ...next[index], column: e.target.value };
-                      setFilterDraft(next);
-                    }}
-                  >
-                    <option value="">컬럼 선택</option>
-                    {selectedLayer.columns.map((column) => (
-                      <option key={`column-${column.name}`} value={column.name}>
-                        {column.name} ({column.name_ko})
-                      </option>
-                    ))}
-                  </select>
+                  {filter.type === "BBOX" ? (
+                    <div className="wfs-filter-bbox-summary" style={{ gridColumn: "span 2" }}>
+                      {filter.bbox ? (
+                        <code>{filter.bbox.map((value) => value.toFixed(6)).join(", ")}</code>
+                      ) : (
+                        <span>Shift 또는 Ctrl 키를 누른 채 지도에서 드래그해 영역을 선택하세요.</span>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <select
+                        value={filter.column}
+                        onChange={(e) => {
+                          const next = [...filterDraft];
+                          next[index] = { ...next[index], column: e.target.value };
+                          setFilterDraft(next);
+                        }}
+                      >
+                        <option value="">컬럼 선택</option>
+                        {selectedLayer.columns.map((column) => (
+                          <option key={`column-${column.name}`} value={column.name}>
+                            {column.name} ({column.name_ko})
+                          </option>
+                        ))}
+                      </select>
 
-                  <input
-                    placeholder={filter.type === "LIKE" ? "값 (예: 41*)" : "값"}
-                    value={filter.value}
-                    onChange={(e) => {
-                      const next = [...filterDraft];
-                      next[index] = { ...next[index], value: e.target.value };
-                      setFilterDraft(next);
-                    }}
-                  />
+                      <input
+                        placeholder={filter.type === "LIKE" ? "값 (예: 41*)" : "값"}
+                        value={filter.value}
+                        onChange={(e) => {
+                          const next = [...filterDraft];
+                          next[index] = { ...next[index], value: e.target.value };
+                          setFilterDraft(next);
+                        }}
+                      />
+                    </>
+                  )}
 
                   <button
                     className="ghost compact"
-                    onClick={() => setFilterDraft((prev) => prev.filter((_, idx) => idx !== index))}
-                    disabled={filterDraft.length <= 1}
+                    onClick={() => {
+                      if (filter.type === "BBOX" && filter.bbox) {
+                        setFilterDraft((prev) =>
+                          prev.map((item, idx) => (idx === index ? { ...item, bbox: undefined } : item))
+                        );
+                        return;
+                      }
+                      setFilterDraft((prev) => {
+                        const next = prev.filter((_, idx) => idx !== index);
+                        return next.length > 0 ? next : [makeEmptyFilter()];
+                      });
+                    }}
+                    disabled={filterDraft.length <= 1 && !(filter.type === "BBOX" && filter.bbox)}
                   >
-                    삭제
+                    {filter.type === "BBOX" && filter.bbox ? "초기화" : "삭제"}
                   </button>
                 </div>
               ))}
             </div>
+
+            {bboxFilter && (
+              <div className="wfs-bbox-editor">
+                <div className="wfs-bbox-editor-head">
+                  <strong>BBOX 영역 선택</strong>
+                  <span>지도 이동/확대/축소는 자유롭고, 영역 선택은 Shift/Ctrl + 드래그로 동작합니다.</span>
+                </div>
+                <WfsBboxPicker
+                  value={bboxFilter.bbox ?? null}
+                  onChange={(nextBbox) => {
+                    setFilterDraft((prev) =>
+                      prev.map((item, idx) =>
+                        idx === bboxFilterIndex ? { ...item, bbox: nextBbox, geom_column: item.geom_column || "ag_geom" } : item
+                      )
+                    );
+                    setError("");
+                  }}
+                />
+              </div>
+            )}
 
             <div className="dialog-actions left">
               <button className="ghost compact" onClick={() => setFilterDraft((prev) => [...prev, makeEmptyFilter()])}>
@@ -514,6 +603,7 @@ export function WfsTab() {
             { key: "size", title: "저장 용량", width: "140px", sortable: true, sortKey: "size_bytes" },
             { key: "rows", title: "행수", width: "100px", sortable: true, sortKey: "total_rows", align: "right" },
             { key: "crs", title: "좌표계", width: "130px", sortable: true, sortKey: "crs" },
+            { key: "filters", title: "필터 조건", width: "320px", sortable: true, sortKey: "filter_summary" },
             { key: "created", title: "생성 시각", width: "196px", sortable: true, sortKey: "created_at" },
             { key: "path", title: "경로", sortable: true, sortKey: "path" }
           ]}
