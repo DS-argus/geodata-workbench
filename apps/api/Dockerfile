@@ -18,6 +18,7 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./alembic.ini
+COPY wfs ./wfs
 
 RUN uv pip install --system --no-cache .
 
