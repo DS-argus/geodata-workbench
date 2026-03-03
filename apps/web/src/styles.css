@@ -352,12 +352,54 @@ button.compact {
   opacity: 0.85;
 }
 
-.table-shell {
+.table-shell-wrap {
   margin-top: 8px;
+}
+
+.table-shell {
   border: 1px solid #d4dfef;
-  border-radius: 12px;
-  overflow: auto hidden;
+  border-radius: 12px 12px 0 0;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: none;
   background: #fff;
+}
+
+.table-shell::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.table-scrollbar {
+  border: 1px solid #d4dfef;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: #fff;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  height: 12px;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: #bfd0e9 #eef3fb;
+}
+
+.table-scrollbar-inner {
+  height: 1px;
+}
+
+.table-scrollbar::-webkit-scrollbar {
+  height: 10px;
+}
+
+.table-scrollbar::-webkit-scrollbar-track {
+  background: #eef3fb;
+  border-radius: 999px;
+}
+
+.table-scrollbar::-webkit-scrollbar-thumb {
+  background: #bfd0e9;
+  border-radius: 999px;
 }
 
 .data-table {
