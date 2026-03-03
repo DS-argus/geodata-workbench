@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-type TabName = "upload" | "convert" | "browse";
+type TabName = "upload" | "wfs" | "browse";
 
 type AppStore = {
   activeTab: TabName;

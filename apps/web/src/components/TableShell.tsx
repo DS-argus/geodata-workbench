@@ -33,15 +33,27 @@ export type DataTableColumn = {
   title: string;
   width?: string;
   align?: "left" | "center" | "right";
+  sortable?: boolean;
+  sortKey?: string;
 };
 
 type DataTableProps = {
   columns: DataTableColumn[];
   rows: Array<Record<string, React.ReactNode>>;
   emptyText?: string;
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
+  onSortChange?: (sortKey: string) => void;
 };
 
-export function DataTable({ columns, rows, emptyText = "표시할 항목이 없습니다." }: DataTableProps) {
+export function DataTable({
+  columns,
+  rows,
+  emptyText = "표시할 항목이 없습니다.",
+  sortBy,
+  sortDir,
+  onSortChange
+}: DataTableProps) {
   const minWidth = columns.reduce((acc, column) => {
     if (!column.width) {
       return acc + 160;
@@ -62,7 +74,20 @@ export function DataTable({ columns, rows, emptyText = "표시할 항목이 없�
           <tr>
             {columns.map((column) => (
               <th key={column.key} style={{ textAlign: column.align ?? "left" }}>
-                {column.title}
+                {column.sortable && onSortChange ? (
+                  <button
+                    type="button"
+                    className="table-sort-button"
+                    onClick={() => onSortChange(column.sortKey ?? column.key)}
+                  >
+                    <span>{column.title}</span>
+                    <span className="table-sort-indicator">
+                      {sortBy === (column.sortKey ?? column.key) ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+                    </span>
+                  </button>
+                ) : (
+                  column.title
+                )}
               </th>
             ))}
           </tr>

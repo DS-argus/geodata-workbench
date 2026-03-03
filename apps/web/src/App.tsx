@@ -1,11 +1,11 @@
 import { useAppStore } from "./store";
 import { UploadTab } from "./components/UploadTab";
-import { ConvertTab } from "./components/ConvertTab";
 import { BrowseTab } from "./components/BrowseTab";
+import { WfsTab } from "./components/WfsTab";
 
 const TABS = [
   { key: "upload", label: "Upload" },
-  { key: "convert", label: "Convert" },
+  { key: "wfs", label: "WFS Collect" },
   { key: "browse", label: "Browse & Map" }
 ] as const;
 
@@ -20,11 +20,12 @@ export default function App() {
           <h1>Geodata Workbench</h1>
           <div className="hero-badges">
             <span>LOCAL</span>
+            <span>WFS</span>
             <span>POSTGRES</span>
             <span>OSM</span>
           </div>
         </div>
-        <p>공간데이터 업로드 · 변환 · 시각화를 한 화면에서</p>
+        <p>로컬 업로드 즉시 변환 · WFS 수집 · 시각화를 한 화면에서</p>
       </header>
 
       <nav className="tabs">
@@ -40,7 +41,7 @@ export default function App() {
       </nav>
 
       {activeTab === "upload" && <UploadTab />}
-      {activeTab === "convert" && <ConvertTab />}
+      {activeTab === "wfs" && <WfsTab />}
       {activeTab === "browse" && <BrowseTab />}
     </main>
   );

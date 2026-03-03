@@ -10,6 +10,11 @@ const PREVIEW_LIMIT = 50;
 type AnyFeature = GeoJSON.Feature<GeoJSON.Geometry, Record<string, unknown>>;
 type AnyFeatureCollection = GeoJSON.FeatureCollection<GeoJSON.Geometry, Record<string, unknown>>;
 
+function trimFileNameToSeconds(name: string): string {
+  if (!name) return "";
+  return name.replace(/_(\d{8}_\d{6})_\d+(?=\.[^.]+$)/, "_$1");
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -99,6 +104,12 @@ export function BrowseTab() {
 
   const datasetsQuery = useQuery({ queryKey: ["datasets"], queryFn: fetchDatasets });
   const datasets = datasetsQuery.data ?? [];
+  const groupedDatasets = useMemo(() => {
+    const local = datasets.filter((item) => item.source_type === "local_convert");
+    const wfs = datasets.filter((item) => item.source_type === "wfs");
+    const unknown = datasets.filter((item) => item.source_type !== "local_convert" && item.source_type !== "wfs");
+    return { local, wfs, unknown };
+  }, [datasets]);
   const effectiveId = selectedId;
 
   const previewQuery = useQuery({
@@ -134,7 +145,7 @@ export function BrowseTab() {
   return (
     <section className="tab-section">
       <div className="panel">
-        <div className="row">
+        <div className="row browse-select-row">
           <label className="input-group">
             <span>파일 선택</span>
             <select
@@ -142,15 +153,37 @@ export function BrowseTab() {
               onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : null)}
             >
               <option value="">없음</option>
-              {datasets.map((item) => (
-                <option key={item.file_id} value={item.file_id}>
-                  {item.display_name} ({item.total_rows.toLocaleString()} rows)
-                </option>
-              ))}
+              {groupedDatasets.local.length > 0 && (
+                <optgroup label={`업로드 변환 (${groupedDatasets.local.length})`}>
+                  {groupedDatasets.local.map((item) => (
+                    <option key={item.file_id} value={item.file_id}>
+                      {trimFileNameToSeconds(item.display_name)} ({item.total_rows.toLocaleString()} rows)
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {groupedDatasets.wfs.length > 0 && (
+                <optgroup label={`WFS 수집 (${groupedDatasets.wfs.length})`}>
+                  {groupedDatasets.wfs.map((item) => (
+                    <option key={item.file_id} value={item.file_id}>
+                      {trimFileNameToSeconds(item.display_name)} ({item.total_rows.toLocaleString()} rows)
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {groupedDatasets.unknown.length > 0 && (
+                <optgroup label={`기타 (${groupedDatasets.unknown.length})`}>
+                  {groupedDatasets.unknown.map((item) => (
+                    <option key={item.file_id} value={item.file_id}>
+                      {trimFileNameToSeconds(item.display_name)} ({item.total_rows.toLocaleString()} rows)
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </label>
         </div>
-        <p className="section-help">파일을 선택하면 속성 미리보기와 지도가 함께 표시됩니다.</p>
+        <p className="section-help browse-help-text">파일을 선택하면 속성 미리보기와 지도가 함께 표시됩니다.</p>
       </div>
 
       <div className="browse-grid">
@@ -159,7 +192,11 @@ export function BrowseTab() {
             <h3>Preview</h3>
             <span className="scroll-hint-badge">↔ 좌우 스크롤</span>
           </div>
-          <div className="preview-meta">{selectedDataset?.name ?? ""}</div>
+          <div className="preview-meta">
+            {selectedDataset
+              ? `${selectedDataset.source_type === "wfs" ? "WFS 수집" : "로컬 변환"} · ${trimFileNameToSeconds(selectedDataset.name)}`
+              : ""}
+          </div>
           {!effectiveId ? (
             <div className="preview-empty">파일을 선택하면 상위 50개 행을 미리 볼 수 있습니다.</div>
           ) : (

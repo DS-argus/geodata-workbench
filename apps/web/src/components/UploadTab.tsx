@@ -1,32 +1,129 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createUploads, deleteUpload, fetchUploads } from "../api";
+import { createUploads, deleteUpload, inspectTabularUpload, submitTabularUpload, fetchUploads } from "../api";
 import { toErrorMessage } from "../error";
 import { LoadingModal } from "./LoadingModal";
 import { DataTable, formatMb, PaginationRow } from "./TableShell";
 
+type TabularPreview = {
+  columns: string[];
+  sample_rows: Record<string, unknown>[];
+  numeric_ranges: Record<string, { min: number; max: number; count: number }>;
+  suggested_lat?: string | null;
+  suggested_lon?: string | null;
+  lat_reference: { min: number; max: number };
+  lon_reference: { min: number; max: number };
+};
+
+type ErrorModalState = {
+  open: boolean;
+  title: string;
+  message: string;
+  details?: string[];
+};
+
+function fileExtension(name: string): string {
+  const idx = name.lastIndexOf(".");
+  return idx >= 0 ? name.slice(idx + 1).toLowerCase() : "";
+}
+
+function trimFileNameToSeconds(name: string): string {
+  if (!name) return "";
+  return name.replace(/_(\d{8}_\d{6})_\d+(?=\.[^.]+$)/, "_$1");
+}
+
 export function UploadTab() {
   const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState("created_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [outputFormat, setOutputFormat] = useState<"geoparquet" | "gpkg">("geoparquet");
   const [uploadNotice, setUploadNotice] = useState<string>("");
-  const [uploadError, setUploadError] = useState<string>("");
+
+  const [tabularFile, setTabularFile] = useState<File | null>(null);
+  const [tabularDisplayName, setTabularDisplayName] = useState("");
+  const [tabularPreview, setTabularPreview] = useState<TabularPreview | null>(null);
+  const [isTabularModalOpen, setIsTabularModalOpen] = useState(false);
+  const [csvLat, setCsvLat] = useState("");
+  const [csvLon, setCsvLon] = useState("");
+
+  const [errorModal, setErrorModal] = useState<ErrorModalState>({
+    open: false,
+    title: "",
+    message: ""
+  });
+
   const queryClient = useQueryClient();
 
   const uploadsQuery = useQuery({
-    queryKey: ["uploads", page],
-    queryFn: () => fetchUploads({ page, pageSize: 20, query: "" })
+    queryKey: ["uploads", page, sortBy, sortDir],
+    queryFn: () => fetchUploads({ page, pageSize: 20, query: "", sortBy, sortDir })
   });
+
+  const openErrorModal = (title: string, message: string, details?: string[]) => {
+    setErrorModal({ open: true, title, message, details });
+  };
 
   const uploadMutation = useMutation({
     mutationFn: createUploads,
     onSuccess: (result) => {
-      setUploadError("");
-      setUploadNotice(`업로드 완료 (${result.saved_count}건)`);
+      const successCount = result.success_items.length;
+      const failedCount = result.failed_items.length;
+      const messageParts = [`업로드/변환 성공 ${successCount}건`];
+      if (failedCount > 0) {
+        messageParts.push(`실패 ${failedCount}건`);
+      }
+      setUploadNotice(messageParts.join(" · "));
       queryClient.invalidateQueries({ queryKey: ["uploads"] });
-      queryClient.invalidateQueries({ queryKey: ["convert-options"] });
+      queryClient.invalidateQueries({ queryKey: ["datasets"] });
+
+      if (failedCount > 0) {
+        openErrorModal(
+          "업로드 중 일부 항목 실패",
+          "일부 파일은 변환에 실패하여 저장되지 않았습니다.",
+          result.failed_items.map((item) => `${item.name}: ${item.user_message || item.message || "알 수 없는 오류"}`)
+        );
+      }
     },
     onError: (error) => {
-      setUploadNotice("");
-      setUploadError(toErrorMessage(error, "업로드 실패"));
+      const msg = toErrorMessage(error, "업로드 처리 중 오류가 발생했습니다.");
+      const lines = msg.split("\n").map((line) => line.trim()).filter(Boolean);
+      openErrorModal("업로드 실패", lines[0] || "업로드 처리 중 오류가 발생했습니다.", lines.slice(1));
+    }
+  });
+
+  const inspectMutation = useMutation({
+    mutationFn: inspectTabularUpload,
+    onSuccess: (result) => {
+      setTabularPreview(result);
+      const nextLat = result.suggested_lat ?? result.columns[0] ?? "";
+      const nextLon = result.suggested_lon ?? result.columns[Math.min(1, result.columns.length - 1)] ?? "";
+      setCsvLat(nextLat);
+      setCsvLon(nextLon);
+      setIsTabularModalOpen(true);
+    },
+    onError: (error) => {
+      const msg = toErrorMessage(error, "컬럼 정보를 읽지 못했습니다.");
+      const lines = msg.split("\n").map((line) => line.trim()).filter(Boolean);
+      openErrorModal("CSV/Excel 분석 실패", lines[0] || "컬럼 정보를 읽지 못했습니다.", lines.slice(1));
+      setTabularFile(null);
+      setTabularPreview(null);
+    }
+  });
+
+  const submitTabularMutation = useMutation({
+    mutationFn: submitTabularUpload,
+    onSuccess: () => {
+      setUploadNotice("CSV/Excel 업로드 및 변환 완료");
+      setIsTabularModalOpen(false);
+      setTabularFile(null);
+      setTabularPreview(null);
+      queryClient.invalidateQueries({ queryKey: ["uploads"] });
+      queryClient.invalidateQueries({ queryKey: ["datasets"] });
+    },
+    onError: (error) => {
+      const msg = toErrorMessage(error, "CSV/Excel 변환 중 오류가 발생했습니다.");
+      const lines = msg.split("\n").map((line) => line.trim()).filter(Boolean);
+      openErrorModal("CSV/Excel 변환 실패", lines[0] || "CSV/Excel 변환 중 오류가 발생했습니다.", lines.slice(1));
     }
   });
 
@@ -34,12 +131,26 @@ export function UploadTab() {
     mutationFn: deleteUpload,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["uploads"] });
-      queryClient.invalidateQueries({ queryKey: ["convert-options"] });
+      queryClient.invalidateQueries({ queryKey: ["datasets"] });
+    },
+    onError: (error) => {
+      const msg = toErrorMessage(error, "항목 삭제 중 오류가 발생했습니다.");
+      const lines = msg.split("\n").map((line) => line.trim()).filter(Boolean);
+      openErrorModal("삭제 실패", lines[0] || "항목 삭제 중 오류가 발생했습니다.", lines.slice(1));
     }
   });
 
   const rows = useMemo(() => {
     const items = uploadsQuery.data?.items ?? [];
+    const statusText = (status?: string) => {
+      if (!status) return "완료";
+      if (status === "succeeded") return "완료";
+      if (status === "failed") return "실패";
+      if (status === "running") return "진행중";
+      if (status === "queued") return "대기중";
+      return status;
+    };
+
     return items.map((item) => ({
       action: (
         <button
@@ -54,13 +165,37 @@ export function UploadTab() {
       id: item.id,
       name: <strong>{item.name}</strong>,
       size: formatMb(item.size_bytes),
+      status: statusText(item.conversion_status),
+      output: item.conversion_output_name ? trimFileNameToSeconds(item.conversion_output_name) : "-",
+      rows: item.conversion_output_file_id ? (item.conversion_output_rows ?? 0).toLocaleString() : "-",
       created: item.created_at,
-      path: item.path
+      path: item.path,
+      error: item.conversion_error || "-"
     }));
   }, [uploadsQuery.data?.items, deleteMutation]);
+
+  const onSortChange = (nextSortBy: string) => {
+    setPage(1);
+    if (sortBy === nextSortBy) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortBy(nextSortBy);
+    setSortDir(nextSortBy === "created_at" ? "desc" : "asc");
+  };
+
   const currentPageSizeMb = useMemo(
     () =>
       (uploadsQuery.data?.items ?? []).reduce((acc, item) => acc + (Number(item.size_bytes) || 0), 0) /
+      (1024 * 1024),
+    [uploadsQuery.data?.items]
+  );
+  const currentPageConvertedSizeMb = useMemo(
+    () =>
+      (uploadsQuery.data?.items ?? []).reduce(
+        (acc, item) => acc + (Number(item.conversion_output_size) || 0),
+        0
+      ) /
       (1024 * 1024),
     [uploadsQuery.data?.items]
   );
@@ -69,38 +204,203 @@ export function UploadTab() {
     if (!files || files.length === 0) {
       return;
     }
-    if (uploadMutation.isPending) {
-      setUploadError("업로드 진행 중입니다. 잠시 후 다시 시도하세요.");
+    if (uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending) {
+      openErrorModal("작업 진행 중", "현재 업로드/변환 작업이 진행 중입니다. 잠시 후 다시 시도해 주세요.");
       return;
     }
 
     const pickedFiles = Array.from(files);
+    const tabularFiles = pickedFiles.filter((file) => ["csv", "xlsx", "xls"].includes(fileExtension(file.name)));
+    const hasFolderSelection = pickedFiles.some((file) => {
+      const path = (file as unknown as { webkitRelativePath?: string }).webkitRelativePath;
+      return Boolean(path && path.includes("/"));
+    });
+
+    if (tabularFiles.length > 0) {
+      if (pickedFiles.length > 1 || hasFolderSelection) {
+        openErrorModal(
+          "CSV/Excel 업로드 방식 안내",
+          "CSV/Excel은 한 번에 1개 파일만 업로드할 수 있습니다.",
+          ["CSV/Excel 파일을 단독으로 선택하면 컬럼 지정 팝업이 열립니다."]
+        );
+        return;
+      }
+
+      const file = tabularFiles[0];
+      setUploadNotice("");
+      setTabularFile(file);
+      setTabularDisplayName(file.name.replace(/\.[^.]+$/, "").trim());
+      inspectMutation.mutate(file);
+      return;
+    }
+
     const relativePaths = pickedFiles.map((file) => {
       const path = (file as unknown as { webkitRelativePath?: string }).webkitRelativePath;
       return path && path.length > 0 ? path : file.name;
     });
     const displayNames = pickedFiles.map((file, index) => {
       const relativePath = relativePaths[index];
-      if (relativePath.includes("/")) {
-        return "";
-      }
+      if (relativePath.includes("/")) return "";
       return file.name.replace(/\.[^.]+$/, "").trim();
     });
 
-    setUploadError("");
     setUploadNotice(`선택 ${pickedFiles.length}개 · 업로드 시작`);
-    uploadMutation.mutate({ files: pickedFiles, relativePaths, displayNames });
+    uploadMutation.mutate({ files: pickedFiles, relativePaths, displayNames, outputFormat });
   };
 
   return (
     <section className="tab-section">
       <LoadingModal
-        open={uploadMutation.isPending}
-        title="업로드 중..."
-        description="파일을 저장하고 메타데이터를 생성하고 있습니다."
+        open={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
+        title={uploadMutation.isPending ? "업로드/변환 중..." : "파일 분석/변환 중..."}
+        description="요청을 처리하는 동안 잠시만 기다려 주세요."
       />
 
+      {errorModal.open && (
+        <div className="dialog-backdrop" onClick={() => setErrorModal((prev) => ({ ...prev, open: false }))}>
+          <div className="dialog-card" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-head">
+              <h4>{errorModal.title}</h4>
+              <button className="icon-btn" onClick={() => setErrorModal((prev) => ({ ...prev, open: false }))} aria-label="닫기">
+                ✕
+              </button>
+            </div>
+            <p>{errorModal.message}</p>
+            {errorModal.details && errorModal.details.length > 0 && (
+              <div className="preview-table-wrap" style={{ maxHeight: "240px" }}>
+                <table className="preview-table">
+                  <tbody>
+                    {errorModal.details.map((detail, idx) => (
+                      <tr key={`err-${idx}`}>
+                        <td>{detail}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="dialog-actions">
+              <button className="primary" onClick={() => setErrorModal((prev) => ({ ...prev, open: false }))}>
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isTabularModalOpen && tabularFile && tabularPreview && (
+        <div className="dialog-backdrop" onClick={() => setIsTabularModalOpen(false)}>
+          <div className="dialog-card tabular-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-head">
+              <h4>위도/경도 컬럼 설정 - {tabularDisplayName}</h4>
+              <button className="icon-btn" onClick={() => setIsTabularModalOpen(false)} aria-label="닫기">
+                ✕
+              </button>
+            </div>
+            <p className="section-help">CSV/Excel 입력 좌표계는 EPSG:4326(고정)입니다.</p>
+            <div className="tabular-guide-card">
+              <strong>참고 범위</strong>
+              <span>
+                위도: {tabularPreview.lat_reference.min} ~ {tabularPreview.lat_reference.max}
+              </span>
+              <span>
+                경도: {tabularPreview.lon_reference.min} ~ {tabularPreview.lon_reference.max}
+              </span>
+            </div>
+            <div className="row">
+              <label className="input-group">
+                <span>위도 컬럼</span>
+                <select value={csvLat} onChange={(e) => setCsvLat(e.target.value)}>
+                  {tabularPreview.columns.map((col) => (
+                    <option key={`lat-${col}`} value={col}>
+                      {col}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="input-group">
+                <span>경도 컬럼</span>
+                <select value={csvLon} onChange={(e) => setCsvLon(e.target.value)}>
+                  {tabularPreview.columns.map((col) => (
+                    <option key={`lon-${col}`} value={col}>
+                      {col}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="preview-table-wrap tabular-preview-wrap">
+              <table className="preview-table">
+                <thead>
+                  <tr>
+                    {tabularPreview.columns.map((col) => (
+                      <th key={`sample-${col}`}>{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {tabularPreview.sample_rows.map((row, idx) => (
+                    <tr key={`sample-row-${idx}`}>
+                      {tabularPreview.columns.map((col) => (
+                        <td key={`sample-${idx}-${col}`}>{String(row[col] ?? "")}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="dialog-actions">
+              <button className="ghost" onClick={() => setIsTabularModalOpen(false)}>
+                취소
+              </button>
+              <button
+                className="primary"
+                disabled={!csvLat || !csvLon || submitTabularMutation.isPending}
+                onClick={() => {
+                  submitTabularMutation.mutate({
+                    file: tabularFile,
+                    displayName: tabularDisplayName,
+                    output_format: outputFormat,
+                    csv_lat_col: csvLat,
+                    csv_lon_col: csvLon,
+                    csv_input_crs: "EPSG:4326"
+                  });
+                }}
+              >
+                업로드 + 변환 실행
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="panel">
+        <div className="row split">
+          <div className="input-group" style={{ maxWidth: "340px" }}>
+            <span>업로드 결과 출력 형식</span>
+            <div className="format-toggle">
+              <button
+                type="button"
+                className={outputFormat === "geoparquet" ? "format-btn active" : "format-btn"}
+                onClick={() => setOutputFormat("geoparquet")}
+                disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
+              >
+                <span className="format-btn-title">GeoParquet</span>
+                <span className="format-btn-sub">기본</span>
+              </button>
+              <button
+                type="button"
+                className={outputFormat === "gpkg" ? "format-btn active" : "format-btn"}
+                onClick={() => setOutputFormat("gpkg")}
+                disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
+              >
+                <span className="format-btn-title">GPKG</span>
+                <span className="format-btn-sub">호환 중점</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="upload-picker-grid">
           <label className="upload-tile">
             <input
@@ -108,14 +408,14 @@ export function UploadTab() {
               type="file"
               multiple
               accept=".zip,.csv,.xlsx,.xls"
-              disabled={uploadMutation.isPending}
+              disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
               onChange={(e) => {
                 handleAutoUpload(e.target.files);
                 e.currentTarget.value = "";
               }}
             />
             <div className="upload-tile-title">파일 업로드</div>
-            <p>CSV / Excel / ZIP 파일을 선택하면 즉시 저장됩니다.</p>
+            <p>ZIP은 즉시 변환, CSV/Excel은 컬럼 지정 후 변환됩니다.</p>
             <span className="upload-tile-cta">파일 선택</span>
           </label>
 
@@ -124,7 +424,7 @@ export function UploadTab() {
               className="file-hidden"
               type="file"
               multiple
-              disabled={uploadMutation.isPending}
+              disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
               onChange={(e) => {
                 handleAutoUpload(e.target.files);
                 e.currentTarget.value = "";
@@ -132,13 +432,12 @@ export function UploadTab() {
               {...({ webkitdirectory: "", directory: "" } as any)}
             />
             <div className="upload-tile-title">폴더 업로드</div>
-            <p>Shapefile 구성 파일이 포함된 폴더를 선택하면 즉시 저장됩니다.</p>
+            <p>Shapefile 구성 파일이 포함된 폴더를 선택하면 자동 변환됩니다.</p>
             <span className="upload-tile-cta">폴더 선택</span>
           </label>
         </div>
 
         {uploadNotice && <p className="info">{uploadNotice}</p>}
-        {uploadError && <p className="error">{uploadError}</p>}
       </div>
 
       <div className="panel">
@@ -147,26 +446,42 @@ export function UploadTab() {
             <span className="metric-label">총 업로드</span>
             <strong className="metric-value">{uploadsQuery.data?.total_items ?? 0}건</strong>
           </div>
-          <div className="metric-card">
+          <div className="metric-card dual-size-card">
             <span className="metric-label">현재 페이지 용량</span>
-            <strong className="metric-value">{currentPageSizeMb.toFixed(2)} MB</strong>
+            <div className="size-grid">
+              <div className="size-chip">
+                <span className="size-chip-label">rawdata</span>
+                <strong className="size-chip-value">{currentPageSizeMb.toFixed(2)} MB</strong>
+              </div>
+              <div className="size-chip">
+                <span className="size-chip-label">data</span>
+                <strong className="size-chip-value">{currentPageConvertedSizeMb.toFixed(2)} MB</strong>
+              </div>
+            </div>
           </div>
         </div>
 
-        <h3>업로드 목록</h3>
-        <p className="section-help">원본 파일을 확인하고 필요 시 행 단위로 삭제할 수 있습니다.</p>
+        <h3>업로드 목록 (원본 + 자동 변환 상태)</h3>
+        <p className="section-help">업로드와 변환은 원자적으로 처리됩니다. 실패 시 저장되지 않습니다.</p>
 
         <DataTable
           columns={[
             { key: "action", title: "관리", width: "84px", align: "center" },
-            { key: "id", title: "번호", width: "76px" },
-            { key: "name", title: "이름", width: "240px" },
-            { key: "size", title: "용량", width: "140px" },
-            { key: "created", title: "생성 시각", width: "196px" },
-            { key: "path", title: "경로" }
+            { key: "id", title: "번호", width: "76px", sortable: true, sortKey: "id" },
+            { key: "name", title: "이름", width: "180px", sortable: true, sortKey: "name" },
+            { key: "size", title: "용량", width: "140px", sortable: true, sortKey: "size_bytes" },
+            { key: "status", title: "변환상태", width: "130px", sortable: true, sortKey: "conversion_status" },
+            { key: "output", title: "결과파일", width: "220px", sortable: true, sortKey: "conversion_output_name" },
+            { key: "rows", title: "변환 행수", width: "120px", sortable: true, sortKey: "conversion_output_rows", align: "right" },
+            { key: "created", title: "생성 시각", width: "196px", sortable: true, sortKey: "created_at" },
+            { key: "path", title: "원본 경로", width: "260px", sortable: true, sortKey: "path" },
+            { key: "error", title: "오류", width: "220px", sortable: true, sortKey: "conversion_error" }
           ]}
           rows={rows}
           emptyText="업로드된 항목이 없습니다."
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSortChange={onSortChange}
         />
 
         <PaginationRow

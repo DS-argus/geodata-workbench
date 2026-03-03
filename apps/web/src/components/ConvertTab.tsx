@@ -400,8 +400,8 @@ export function ConvertTab() {
       )}
 
       <div className="panel">
-        <h3>변환 실행</h3>
-        <p className="section-help">입력 파일과 CRS 정책을 선택한 뒤 변환을 실행하세요.</p>
+        <h3>변환 실행 (로컬 원본 전용)</h3>
+        <p className="section-help">Upload 탭의 로컬 원본을 GeoParquet/GPKG로 변환합니다.</p>
 
         {!options.length && (
           <p className="warn">변환 가능한 입력 파일이 없습니다. Upload 탭에서 먼저 업로드해 주세요.</p>
@@ -502,8 +502,8 @@ export function ConvertTab() {
           </div>
         </div>
 
-        <h3>변환 데이터 목록</h3>
-        <p className="section-help">생성된 결과 파일을 확인하고 불필요한 항목을 정리할 수 있습니다.</p>
+        <h3>변환 데이터 목록 (로컬 변환 결과)</h3>
+        <p className="section-help">로컬 원본에서 생성된 결과만 표시됩니다.</p>
 
         <DataTable
           columns={[
