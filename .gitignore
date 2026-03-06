@@ -16,3 +16,12 @@ apps/web/dist/
 apps/web/*.tsbuildinfo
 .runtime/
 .DS_Store
+
+# Local tooling/state
+.omx/
+tmp/
+
+# Local QA screenshots
+upload-*.png
+ux-*.png
+wfs-*.png
