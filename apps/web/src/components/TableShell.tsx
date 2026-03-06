@@ -54,11 +54,6 @@ export function DataTable({
   sortDir,
   onSortChange
 }: DataTableProps) {
-  const shellRef = React.useRef<HTMLDivElement | null>(null);
-  const proxyRef = React.useRef<HTMLDivElement | null>(null);
-  const syncLockRef = React.useRef(false);
-  const [scrollContentWidth, setScrollContentWidth] = React.useState(0);
-
   const minWidth = columns.reduce((acc, column) => {
     if (!column.width) {
       return acc + 160;
@@ -67,43 +62,9 @@ export function DataTable({
     return acc + (Number.isFinite(numeric) ? numeric : 160);
   }, 0);
 
-  React.useEffect(() => {
-    const updateScrollMetrics = () => {
-      const shell = shellRef.current;
-      if (!shell) {
-        return;
-      }
-      const table = shell.querySelector("table");
-      const width = Math.max(minWidth, table?.scrollWidth ?? 0);
-      setScrollContentWidth(width);
-      if (proxyRef.current) {
-        proxyRef.current.scrollLeft = shell.scrollLeft;
-      }
-    };
-    const frame = window.requestAnimationFrame(updateScrollMetrics);
-    window.addEventListener("resize", updateScrollMetrics);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener("resize", updateScrollMetrics);
-    };
-  }, [minWidth, rows.length, columns.length]);
-
   return (
     <div className="table-shell-wrap">
-      <div
-        className="table-shell"
-        ref={shellRef}
-        onScroll={() => {
-          if (!proxyRef.current || syncLockRef.current) {
-            return;
-          }
-          syncLockRef.current = true;
-          proxyRef.current.scrollLeft = shellRef.current?.scrollLeft ?? 0;
-          window.requestAnimationFrame(() => {
-            syncLockRef.current = false;
-          });
-        }}
-      >
+      <div className="table-shell">
         <table className="data-table" style={{ minWidth }}>
           <colgroup>
             {columns.map((column) => (
@@ -152,22 +113,6 @@ export function DataTable({
             )}
           </tbody>
         </table>
-      </div>
-      <div
-        className="table-scrollbar"
-        ref={proxyRef}
-        onScroll={() => {
-          if (!shellRef.current || syncLockRef.current) {
-            return;
-          }
-          syncLockRef.current = true;
-          shellRef.current.scrollLeft = proxyRef.current?.scrollLeft ?? 0;
-          window.requestAnimationFrame(() => {
-            syncLockRef.current = false;
-          });
-        }}
-      >
-        <div className="table-scrollbar-inner" style={{ width: `${Math.max(scrollContentWidth, minWidth)}px` }} />
       </div>
     </div>
   );

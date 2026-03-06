@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   cancelWfsJob,
@@ -13,9 +13,11 @@ import {
 import { toErrorMessage } from "../error";
 import { useAppStore } from "../store";
 import type { WfsFilter } from "../types";
+import { DeleteConfirmDialog } from "./DeleteSafety";
 import { DataTable, formatMb, PaginationRow } from "./TableShell";
 import { LoadingModal } from "./LoadingModal";
 import { WfsBboxPicker } from "./WfsBboxPicker";
+import { useModalA11y } from "./useModalA11y";
 
 type WfsUiFilter = {
   type: "EQ" | "LIKE" | "BBOX";
@@ -45,9 +47,23 @@ export function WfsTab() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
   const [isCollectModalOpen, setIsCollectModalOpen] = useState(false);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: number; label: string } | null>(null);
+  const apiKeyModalRef = useRef<HTMLDivElement | null>(null);
+  const collectModalRef = useRef<HTMLDivElement | null>(null);
 
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const queryClient = useQueryClient();
+
+  const closeApiKeyModal = () => {
+    setIsApiKeyModalOpen(false);
+  };
+
+  const closeCollectModal = () => {
+    setIsCollectModalOpen(false);
+  };
+
+  useModalA11y({ open: isApiKeyModalOpen, onClose: closeApiKeyModal, modalRef: apiKeyModalRef });
+  useModalA11y({ open: isCollectModalOpen, onClose: closeCollectModal, modalRef: collectModalRef });
 
   const configQuery = useQuery({ queryKey: ["wfs-config"], queryFn: fetchWfsConfig });
   const layersQuery = useQuery({ queryKey: ["wfs-layers"], queryFn: fetchWfsLayers });
@@ -106,8 +122,13 @@ export function WfsTab() {
   const deleteMutation = useMutation({
     mutationFn: deleteWfsCollection,
     onSuccess: () => {
+      setNotice("수집 항목이 삭제되었습니다.");
+      setError("");
       queryClient.invalidateQueries({ queryKey: ["wfs-collections"] });
       queryClient.invalidateQueries({ queryKey: ["datasets"] });
+    },
+    onError: (err) => {
+      setError(toErrorMessage(err, "수집 항목 삭제 실패"));
     }
   });
 
@@ -148,7 +169,8 @@ export function WfsTab() {
 
     if (status === "succeeded") {
       setError("");
-      setNotice("WFS 수집이 완료되었습니다. Browse & Map에서 결과를 확인하세요.");
+      const summary = runningJobQuery.data.progress_message?.trim() || "WFS 수집이 완료되었습니다.";
+      setNotice(`${summary} · Browse & Map에서 결과를 확인하세요.`);
       queryClient.invalidateQueries({ queryKey: ["wfs-collections"] });
       queryClient.invalidateQueries({ queryKey: ["datasets"] });
       return;
@@ -168,9 +190,10 @@ export function WfsTab() {
       action: (
         <button
           className="icon-btn danger"
-          onClick={() => deleteMutation.mutate(item.file_id)}
+          onClick={() => setDeleteConfirmTarget({ id: item.file_id, label: item.name })}
           aria-label="삭제"
           title="삭제"
+          disabled={deleteMutation.isPending}
         >
           🗑️
         </button>
@@ -188,7 +211,7 @@ export function WfsTab() {
       created: item.created_at,
       path: item.path
     }));
-  }, [collectionsQuery.data?.items, deleteMutation]);
+  }, [collectionsQuery.data?.items, deleteMutation.isPending]);
 
   const openCollectModal = () => {
     if (!selectedLayer) {
@@ -306,12 +329,34 @@ export function WfsTab() {
         }
       />
 
+      <DeleteConfirmDialog
+        open={Boolean(deleteConfirmTarget)}
+        dialogId="wfs-delete-dialog-title"
+        title="WFS 수집 결과 삭제"
+        message="삭제하면 즉시 목록에서 제거됩니다. 계속하시겠습니까?"
+        targetLabel={deleteConfirmTarget?.label}
+        confirmLabel="삭제"
+        onCancel={() => setDeleteConfirmTarget(null)}
+        onConfirm={() => {
+          if (!deleteConfirmTarget) return;
+          deleteMutation.mutate(deleteConfirmTarget.id);
+          setDeleteConfirmTarget(null);
+        }}
+      />
+
       {isApiKeyModalOpen && (
-        <div className="dialog-backdrop" onClick={() => setIsApiKeyModalOpen(false)}>
-          <div className="dialog-card wfs-key-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-backdrop" role="presentation">
+          <div
+            ref={apiKeyModalRef}
+            className="dialog-card wfs-key-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wfs-api-key-dialog-title"
+            tabIndex={-1}
+          >
             <div className="dialog-head">
-              <h4>VWorld API 키 설정</h4>
-              <button className="icon-btn" onClick={() => setIsApiKeyModalOpen(false)} aria-label="닫기">
+              <h4 id="wfs-api-key-dialog-title">VWorld API 키 설정</h4>
+              <button className="icon-btn" onClick={closeApiKeyModal} aria-label="닫기">
                 ✕
               </button>
             </div>
@@ -327,7 +372,7 @@ export function WfsTab() {
               <small className="hint-text">현재 상태: {hasApiKey ? `저장됨 (${configQuery.data?.key_masked})` : "미설정"}</small>
             </label>
             <div className="dialog-actions">
-              <button className="ghost" onClick={() => setIsApiKeyModalOpen(false)}>
+              <button className="ghost" onClick={closeApiKeyModal}>
                 닫기
               </button>
               <button
@@ -343,11 +388,18 @@ export function WfsTab() {
       )}
 
       {isCollectModalOpen && selectedLayer && (
-        <div className="dialog-backdrop" onClick={() => setIsCollectModalOpen(false)}>
-          <div className="dialog-card wfs-collect-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-backdrop" role="presentation">
+          <div
+            ref={collectModalRef}
+            className="dialog-card wfs-collect-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wfs-collect-dialog-title"
+            tabIndex={-1}
+          >
             <div className="dialog-head wfs-collect-head">
-              <h4>WFS 수집 조건 설정</h4>
-              <button className="icon-btn" onClick={() => setIsCollectModalOpen(false)} aria-label="닫기">
+              <h4 id="wfs-collect-dialog-title">WFS 수집 조건 설정</h4>
+              <button className="icon-btn" onClick={closeCollectModal} aria-label="닫기">
                 ✕
               </button>
             </div>
@@ -503,7 +555,7 @@ export function WfsTab() {
               </button>
             </div>
             <div className="dialog-actions">
-              <button className="ghost" onClick={() => setIsCollectModalOpen(false)}>
+              <button className="ghost" onClick={closeCollectModal}>
                 취소
               </button>
               <button className="primary" onClick={runCollection} disabled={startMutation.isPending || runningJobId !== null}>
@@ -514,7 +566,7 @@ export function WfsTab() {
         </div>
       )}
 
-      <div className="panel">
+      <div className="panel wfs-control-panel">
         <h3>WFS 수집</h3>
         <p className="section-help">레이어를 선택한 뒤 수집 버튼에서 필터 조건(EQ/LIKE, AND/OR)을 설정합니다.</p>
 
@@ -544,7 +596,7 @@ export function WfsTab() {
         {error && <p className="error">{error}</p>}
       </div>
 
-      <div className="panel">
+      <div className="panel wfs-layer-panel">
         <h3>호출 가능 레이어</h3>
         <div className="wfs-browser-grid">
           <div className="wfs-layer-list">
@@ -592,8 +644,11 @@ export function WfsTab() {
         </div>
       </div>
 
-      <div className="panel">
-        <h3>WFS 수집 결과</h3>
+      <div className="panel wfs-results-panel">
+        <div className="section-title-row">
+          <h3>WFS 수집 결과</h3>
+          <span className="scroll-hint-badge table-scroll-hint">↔ 좌우 스크롤</span>
+        </div>
         <p className="section-help">수집된 파일은 Browse & Map에서 동일하게 미리보기/시각화할 수 있습니다.</p>
         <DataTable
           columns={[

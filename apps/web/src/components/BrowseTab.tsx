@@ -144,7 +144,7 @@ export function BrowseTab() {
 
   return (
     <section className="tab-section">
-      <div className="panel">
+      <div className="panel browse-control-panel">
         <div className="row browse-select-row">
           <label className="input-group">
             <span>파일 선택</span>
@@ -187,7 +187,7 @@ export function BrowseTab() {
       </div>
 
       <div className="browse-grid">
-        <div className="panel preview-panel">
+        <div className="panel preview-panel browse-preview-panel">
           <div className="preview-head">
             <h3>Preview</h3>
             <span className="scroll-hint-badge">↔ 좌우 스크롤</span>
@@ -223,7 +223,7 @@ export function BrowseTab() {
           )}
         </div>
 
-        <div className="panel map-panel">
+        <div className="panel map-panel browse-map-panel">
           <div className="row between map-head">
             <h3>Map</h3>
             <label className="map-rows-control">

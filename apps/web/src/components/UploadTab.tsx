@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createUploads, deleteUpload, inspectTabularUpload, submitTabularUpload, fetchUploads } from "../api";
 import { toErrorMessage } from "../error";
 import { LoadingModal } from "./LoadingModal";
+import { DeleteConfirmDialog } from "./DeleteSafety";
 import { DataTable, formatMb, PaginationRow } from "./TableShell";
+import { useModalA11y } from "./useModalA11y";
 
 type TabularPreview = {
   columns: string[];
@@ -45,14 +47,28 @@ export function UploadTab() {
   const [isTabularModalOpen, setIsTabularModalOpen] = useState(false);
   const [csvLat, setCsvLat] = useState("");
   const [csvLon, setCsvLon] = useState("");
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: number; label: string } | null>(null);
 
   const [errorModal, setErrorModal] = useState<ErrorModalState>({
     open: false,
     title: "",
     message: ""
   });
+  const errorModalRef = useRef<HTMLDivElement | null>(null);
+  const tabularModalRef = useRef<HTMLDivElement | null>(null);
 
   const queryClient = useQueryClient();
+
+  const closeErrorModal = () => {
+    setErrorModal((prev) => ({ ...prev, open: false }));
+  };
+
+  const closeTabularModal = () => {
+    setIsTabularModalOpen(false);
+  };
+
+  useModalA11y({ open: errorModal.open, onClose: closeErrorModal, modalRef: errorModalRef });
+  useModalA11y({ open: isTabularModalOpen, onClose: closeTabularModal, modalRef: tabularModalRef });
 
   const uploadsQuery = useQuery({
     queryKey: ["uploads", page, sortBy, sortDir],
@@ -60,6 +76,7 @@ export function UploadTab() {
   });
 
   const openErrorModal = (title: string, message: string, details?: string[]) => {
+    setIsTabularModalOpen(false);
     setErrorModal({ open: true, title, message, details });
   };
 
@@ -130,6 +147,7 @@ export function UploadTab() {
   const deleteMutation = useMutation({
     mutationFn: deleteUpload,
     onSuccess: () => {
+      setUploadNotice("항목이 삭제되었습니다.");
       queryClient.invalidateQueries({ queryKey: ["uploads"] });
       queryClient.invalidateQueries({ queryKey: ["datasets"] });
     },
@@ -155,9 +173,10 @@ export function UploadTab() {
       action: (
         <button
           className="icon-btn danger"
-          onClick={() => deleteMutation.mutate(item.file_id)}
+          onClick={() => setDeleteConfirmTarget({ id: item.file_id, label: item.name })}
           aria-label="삭제"
           title="삭제"
+          disabled={deleteMutation.isPending}
         >
           🗑️
         </button>
@@ -172,7 +191,7 @@ export function UploadTab() {
       path: item.path,
       error: item.conversion_error || "-"
     }));
-  }, [uploadsQuery.data?.items, deleteMutation]);
+  }, [uploadsQuery.data?.items, deleteMutation.isPending]);
 
   const onSortChange = (nextSortBy: string) => {
     setPage(1);
@@ -256,12 +275,34 @@ export function UploadTab() {
         description="요청을 처리하는 동안 잠시만 기다려 주세요."
       />
 
+      <DeleteConfirmDialog
+        open={Boolean(deleteConfirmTarget)}
+        dialogId="upload-delete-dialog-title"
+        title="업로드 항목 삭제"
+        message="삭제하면 즉시 목록에서 제거됩니다. 계속하시겠습니까?"
+        targetLabel={deleteConfirmTarget?.label}
+        confirmLabel="삭제"
+        onCancel={() => setDeleteConfirmTarget(null)}
+        onConfirm={() => {
+          if (!deleteConfirmTarget) return;
+          deleteMutation.mutate(deleteConfirmTarget.id);
+          setDeleteConfirmTarget(null);
+        }}
+      />
+
       {errorModal.open && (
-        <div className="dialog-backdrop" onClick={() => setErrorModal((prev) => ({ ...prev, open: false }))}>
-          <div className="dialog-card" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-backdrop" role="presentation">
+          <div
+            ref={errorModalRef}
+            className="dialog-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-error-dialog-title"
+            tabIndex={-1}
+          >
             <div className="dialog-head">
-              <h4>{errorModal.title}</h4>
-              <button className="icon-btn" onClick={() => setErrorModal((prev) => ({ ...prev, open: false }))} aria-label="닫기">
+              <h4 id="upload-error-dialog-title">{errorModal.title}</h4>
+              <button className="icon-btn" onClick={closeErrorModal} aria-label="닫기">
                 ✕
               </button>
             </div>
@@ -280,7 +321,7 @@ export function UploadTab() {
               </div>
             )}
             <div className="dialog-actions">
-              <button className="primary" onClick={() => setErrorModal((prev) => ({ ...prev, open: false }))}>
+              <button className="primary" onClick={closeErrorModal}>
                 확인
               </button>
             </div>
@@ -289,11 +330,18 @@ export function UploadTab() {
       )}
 
       {isTabularModalOpen && tabularFile && tabularPreview && (
-        <div className="dialog-backdrop" onClick={() => setIsTabularModalOpen(false)}>
-          <div className="dialog-card tabular-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog-backdrop" role="presentation">
+          <div
+            ref={tabularModalRef}
+            className="dialog-card tabular-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-tabular-dialog-title"
+            tabIndex={-1}
+          >
             <div className="dialog-head">
-              <h4>위도/경도 컬럼 설정 - {tabularDisplayName}</h4>
-              <button className="icon-btn" onClick={() => setIsTabularModalOpen(false)} aria-label="닫기">
+              <h4 id="upload-tabular-dialog-title">위도/경도 컬럼 설정 - {tabularDisplayName}</h4>
+              <button className="icon-btn" onClick={closeTabularModal} aria-label="닫기">
                 ✕
               </button>
             </div>
@@ -350,7 +398,7 @@ export function UploadTab() {
               </table>
             </div>
             <div className="dialog-actions">
-              <button className="ghost" onClick={() => setIsTabularModalOpen(false)}>
+              <button className="ghost" onClick={closeTabularModal}>
                 취소
               </button>
               <button
@@ -374,35 +422,62 @@ export function UploadTab() {
         </div>
       )}
 
-      <div className="panel">
-        <div className="row split">
-          <div className="input-group" style={{ maxWidth: "340px" }}>
-            <span>업로드 결과 출력 형식</span>
-            <div className="format-toggle">
-              <button
-                type="button"
-                className={outputFormat === "geoparquet" ? "format-btn active" : "format-btn"}
-                onClick={() => setOutputFormat("geoparquet")}
-                disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
-              >
-                <span className="format-btn-title">GeoParquet</span>
-                <span className="format-btn-sub">기본</span>
-              </button>
-              <button
-                type="button"
-                className={outputFormat === "gpkg" ? "format-btn active" : "format-btn"}
-                onClick={() => setOutputFormat("gpkg")}
-                disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
-              >
-                <span className="format-btn-title">GPKG</span>
-                <span className="format-btn-sub">호환 중점</span>
-              </button>
+      <div className="panel upload-studio-panel">
+        <div className="upload-studio-head">
+          <div className="upload-studio-copy">
+            <span className="upload-kicker">UPLOAD COMMAND CENTER</span>
+            <h3>원본 업로드 & 즉시 변환</h3>
+            <p className="section-help upload-section-help">
+              ZIP/폴더는 즉시 파이프라인으로 전달되고, CSV/Excel은 컬럼 분석 후 정확히 변환됩니다.
+            </p>
+          </div>
+          <div className="upload-format-shell">
+            <div className="input-group">
+              <span>업로드 결과 출력 형식</span>
+              <div className="format-toggle">
+                <button
+                  type="button"
+                  className={outputFormat === "geoparquet" ? "format-btn active" : "format-btn"}
+                  onClick={() => setOutputFormat("geoparquet")}
+                  disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
+                >
+                  <span className="format-btn-title">GeoParquet</span>
+                  <span className="format-btn-sub">분석 최적</span>
+                </button>
+                <button
+                  type="button"
+                  className={outputFormat === "gpkg" ? "format-btn active" : "format-btn"}
+                  onClick={() => setOutputFormat("gpkg")}
+                  disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
+                >
+                  <span className="format-btn-title">GPKG</span>
+                  <span className="format-btn-sub">호환 중점</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
+        <div className="upload-workflow" aria-hidden="true">
+          <div className="upload-workflow-step">
+            <span>01</span>
+            <strong>원본 선택</strong>
+            <p>파일 또는 폴더를 선택하고 형식을 확인합니다.</p>
+          </div>
+          <div className="upload-workflow-step">
+            <span>02</span>
+            <strong>검증 & 분석</strong>
+            <p>Shapefile bundle·위경도 컬럼 유효성을 자동으로 확인합니다.</p>
+          </div>
+          <div className="upload-workflow-step">
+            <span>03</span>
+            <strong>즉시 변환</strong>
+            <p>성공 시 raw/data를 동기화 저장하고 결과를 즉시 갱신합니다.</p>
+          </div>
+        </div>
+
         <div className="upload-picker-grid">
-          <label className="upload-tile">
+          <label className="upload-tile upload-tile-file">
             <input
               className="file-hidden"
               type="file"
@@ -414,12 +489,22 @@ export function UploadTab() {
                 e.currentTarget.value = "";
               }}
             />
-            <div className="upload-tile-title">파일 업로드</div>
-            <p>ZIP은 즉시 변환, CSV/Excel은 컬럼 지정 후 변환됩니다.</p>
-            <span className="upload-tile-cta">파일 선택</span>
+            <div className="upload-tile-head">
+              <span className="upload-tile-icon" aria-hidden="true">
+                ⬢
+              </span>
+              <div>
+                <div className="upload-tile-title">파일 업로드</div>
+                <p>ZIP은 즉시 변환되고 CSV/Excel은 컬럼 지정 모달로 이어집니다.</p>
+              </div>
+            </div>
+            <div className="upload-tile-foot">
+              <span className="upload-tile-cta">파일 선택</span>
+              <span className="upload-tile-meta">ZIP · CSV · XLSX · XLS</span>
+            </div>
           </label>
 
-          <label className="upload-tile">
+          <label className="upload-tile upload-tile-folder">
             <input
               className="file-hidden"
               type="file"
@@ -431,22 +516,36 @@ export function UploadTab() {
               }}
               {...({ webkitdirectory: "", directory: "" } as any)}
             />
-            <div className="upload-tile-title">폴더 업로드</div>
-            <p>Shapefile 구성 파일이 포함된 폴더를 선택하면 자동 변환됩니다.</p>
-            <span className="upload-tile-cta">폴더 선택</span>
+            <div className="upload-tile-head">
+              <span className="upload-tile-icon" aria-hidden="true">
+                ◉
+              </span>
+              <div>
+                <div className="upload-tile-title">폴더 업로드</div>
+                <p>Shapefile 구성(.shp/.dbf/.shx)이 있는 폴더를 그대로 가져옵니다.</p>
+              </div>
+            </div>
+            <div className="upload-tile-foot">
+              <span className="upload-tile-cta">폴더 선택</span>
+              <span className="upload-tile-meta">Shapefile Bundle</span>
+            </div>
           </label>
         </div>
 
-        {uploadNotice && <p className="info">{uploadNotice}</p>}
+        {uploadNotice && (
+          <p className="upload-notice" aria-live="polite">
+            {uploadNotice}
+          </p>
+        )}
       </div>
 
-      <div className="panel">
-        <div className="metric-strip">
-          <div className="metric-card">
+      <div className="panel upload-results-panel">
+        <div className="metric-strip upload-metric-strip">
+          <div className="metric-card upload-stat-card">
             <span className="metric-label">총 업로드</span>
             <strong className="metric-value">{uploadsQuery.data?.total_items ?? 0}건</strong>
           </div>
-          <div className="metric-card dual-size-card">
+          <div className="metric-card upload-stat-card dual-size-card">
             <span className="metric-label">현재 페이지 용량</span>
             <div className="size-grid">
               <div className="size-chip">
@@ -461,8 +560,11 @@ export function UploadTab() {
           </div>
         </div>
 
-        <h3>업로드 목록 (원본 + 자동 변환 상태)</h3>
-        <p className="section-help">업로드와 변환은 원자적으로 처리됩니다. 실패 시 저장되지 않습니다.</p>
+        <div className="upload-results-head">
+          <h3>업로드 목록 (원본 + 자동 변환 상태)</h3>
+          <span className="scroll-hint-badge table-scroll-hint">↔ 좌우 스크롤</span>
+          <p className="section-help">업로드와 변환은 원자적으로 처리됩니다. 실패 시 저장되지 않습니다.</p>
+        </div>
 
         <DataTable
           columns={[
