@@ -18,6 +18,7 @@ from app.services.storage_service import allocate_output_path
 SUPPORTED_VECTOR_EXTENSIONS = {".zip"}
 SUPPORTED_TABULAR_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 SUPPORTED_OUTPUT_FORMATS = {"geoparquet", "gpkg"}
+CSV_READ_ENCODINGS = ("utf-8", "cp949", "euc-kr")
 
 
 class ConversionCancelledError(RuntimeError):
@@ -79,7 +80,18 @@ def _read_csv(
     lon_col: str,
     input_crs: str,
 ) -> gpd.GeoDataFrame:
-    df = pd.read_csv(input_path)
+    last_error: Exception | None = None
+    for encoding in CSV_READ_ENCODINGS:
+        try:
+            df = pd.read_csv(input_path, encoding=encoding)
+            break
+        except Exception as exc:
+            last_error = exc
+    else:
+        if last_error is not None:
+            raise last_error
+        raise ValueError("CSV 파일을 읽을 수 없습니다.")
+
     if lat_col not in df.columns or lon_col not in df.columns:
         raise ValueError(f"CSV must contain columns '{lat_col}' and '{lon_col}'.")
 
