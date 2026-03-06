@@ -8,10 +8,37 @@
 - 지도 타일: OpenStreetMap
 - WFS 수집: VWorld WFS
 
-## 실행 (권장: Docker만 사용)
+## 빠른 시작 (권장)
 
 ```bash
+./setup
+```
+
+`./setup` 실행 시 환경을 점검하고 실행 모드를 안내/설정합니다.
+
+### 실행 모드 선택 가이드
+
+- `docker`: **가장 권장**. 로컬 의존성 설치를 최소화하고 팀 표준 환경으로 맞출 때
+- `local-pg`: Docker 없이 개발하되, 로컬 PostgreSQL/PostGIS를 이미 운영 중일 때
+- `local-lite`: PostgreSQL 없이 빠르게 기능 확인/개발할 때 (SQLite 기반)
+
+> 참고: `local-lite`는 현재 핵심 기능 테스트용으로 지원합니다.  
+> 향후 PostGIS 의존 기능이 추가되면 일부 기능이 제한될 수 있습니다.
+
+### setup 후 실행 명령 (요약)
+
+```bash
+# Docker 모드(API+Web+DB)
 docker compose up -d --build
+```
+
+```bash
+# API
+uv run uvicorn app.api:app --reload --port 8000
+
+# Web
+cd apps/web
+npm run dev
 ```
 
 - 웹 UI: http://localhost:5173
@@ -41,7 +68,7 @@ docker compose up -d --build
 
 - VWorld API 키를 UI에서 저장 후 재사용
 - 레이어/출력 형식/SRSNAME 선택 후 즉시 수집
-- EQ/LIKE/BBOX 필터 + BBOX 분할(1/4/9) 설정
+- EQ/LIKE/BBOX 필터 지원 (BBOX 조건 실패 시 3x3 자동 분할 재시도, 최대 depth 3)
 - 수집 결과를 `data/`에 바로 저장(GeoParquet 기본, GPKG 선택 가능)
 - 백그라운드 Job 실행 + 진행 중 중단 버튼 제공
 

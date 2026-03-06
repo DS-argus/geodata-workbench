@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,11 @@ from app.services.storage_service import allocate_output_path
 
 VWORLD_BASE_URL = "https://api.vworld.kr/req/wfs"
 VWORLD_PAGE_SIZE = 1000
+AUTO_SPLIT_TILE_COUNT = 9  # 3x3
+AUTO_SPLIT_MAX_DEPTH = 3
+WFS_MAX_REQUESTS_PER_JOB = 1500
+WFS_MAX_JOB_SECONDS = 20 * 60
+WFS_TILE_TRUNCATION_HINT = 2000
 
 
 class WfsCollectionCancelledError(RuntimeError):
@@ -23,6 +29,12 @@ class WfsCollectionCancelledError(RuntimeError):
 
 
 class WfsPaginationEndError(RuntimeError):
+    pass
+
+
+class WfsAutoSplitRetryableError(RuntimeError):
+    """BBOX 자동 분할 재시도로 복구 가능한 WFS 오류."""
+
     pass
 
 
@@ -259,9 +271,18 @@ def _fetch_wfs_page(
     if filter_xml:
         params["FILTER"] = filter_xml
 
-    response = requests.get(VWORLD_BASE_URL, params=params, timeout=180)
+    try:
+        response = requests.get(VWORLD_BASE_URL, params=params, timeout=180)
+    except requests.Timeout as exc:
+        raise WfsAutoSplitRetryableError("WFS 요청 시간 초과") from exc
+    except requests.RequestException as exc:
+        raise ValueError(f"WFS 요청 실패: {exc}") from exc
+
     if response.status_code >= 400:
         detail = _extract_wfs_error_text(response.text)
+        if response.status_code in {502, 503, 504}:
+            reason = detail or f"HTTP {response.status_code}"
+            raise WfsAutoSplitRetryableError(f"일시적인 WFS 오류: {reason}")
         if detail:
             raise ValueError(f"WFS 요청 실패 (HTTP {response.status_code}): {detail}")
         response.raise_for_status()
@@ -269,7 +290,7 @@ def _fetch_wfs_page(
         return response.json()
     except json.JSONDecodeError as exc:
         if _is_invalid_range_response(response.text):
-            raise WfsPaginationEndError("STARTINDEX 범위를 초과해 페이지 수집을 종료합니다.") from exc
+            raise WfsAutoSplitRetryableError("STARTINDEX 범위 초과(INVALID_RANGE)") from exc
         for encoding in ("utf-8-sig", "cp949", "euc-kr"):
             try:
                 decoded = response.content.decode(encoding)
@@ -277,6 +298,8 @@ def _fetch_wfs_page(
             except Exception:
                 continue
         detail = _extract_wfs_error_text(response.text)
+        if _is_invalid_range_response(detail):
+            raise WfsAutoSplitRetryableError("STARTINDEX 범위 초과(INVALID_RANGE)") from exc
         if detail:
             raise ValueError(f"WFS 응답이 JSON이 아니며 오류를 반환했습니다: {detail}") from exc
         raise ValueError("WFS 응답을 JSON으로 해석하지 못했습니다. 선택한 레이어의 응답 형식을 확인해 주세요.") from exc
@@ -289,40 +312,47 @@ def _collect_features(
     srs_name: str,
     filters: list[dict[str, Any]],
     bbox_split: int,
-    fallback_bbox: tuple[float, float, float, float] | None,
     page_size: int,
     max_features: int | None,
     cancel_check: Callable[[], bool] | None,
     progress_callback: Callable[[str, int], None] | None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
     if cancel_check and cancel_check():
         raise WfsCollectionCancelledError("WFS 수집이 취소되었습니다.")
 
     features: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     pending_segments: list[tuple[list[dict[str, Any]], int]] = []
+    total_segments = 1
+    stats = {
+        "api_calls": 0,
+        "auto_split_events": 0,
+        "truncated_tiles": 0,
+    }
+    started_at = time.monotonic()
 
     input_bbox = _bbox_from_filters(filters)
-    if input_bbox is not None and bbox_split > 1:
-        for box in split_bbox(input_bbox, bbox_split):
-            pending_segments.append((_replace_or_append_bbox_filter(filters, box), 1))
-    elif input_bbox is None and fallback_bbox is not None:
-        # VWorld WFS limits STARTINDEX to <= 1000; split the global extent up-front
-        # so layers with >2000 features can still be collected completely.
-        initial_split = max(4, bbox_split if bbox_split > 1 else 4)
-        for box in split_bbox(fallback_bbox, initial_split):
-            pending_segments.append((_replace_or_append_bbox_filter(filters, box), 1))
-    else:
-        pending_segments.append((filters, 0))
+    pending_segments.append((filters, 0))
     completed_segments = 0
     while pending_segments:
         segment_filters, split_depth = pending_segments.pop(0)
+        if progress_callback:
+            total_hint = max(total_segments, completed_segments + len(pending_segments) + 1)
+            progress_callback(
+                f"WFS 수집 진행 중 (depth {split_depth}, 타일 {completed_segments + 1}/{total_hint})",
+                min(20 + int((completed_segments / max(total_hint, 1)) * 40), 60),
+            )
         start_index = 0
         while True:
             if cancel_check and cancel_check():
                 raise WfsCollectionCancelledError("WFS 수집이 취소되었습니다.")
+            if time.monotonic() - started_at > WFS_MAX_JOB_SECONDS:
+                raise ValueError("WFS 수집 시간 제한(20분)을 초과했습니다.")
+            if stats["api_calls"] >= WFS_MAX_REQUESTS_PER_JOB:
+                raise ValueError(f"WFS 요청 호출 상한({WFS_MAX_REQUESTS_PER_JOB}회)을 초과했습니다.")
 
             try:
+                stats["api_calls"] += 1
                 payload = _fetch_wfs_page(
                     api_key=api_key,
                     typename=typename,
@@ -331,15 +361,37 @@ def _collect_features(
                     count=page_size,
                     filter_xml=build_filter_xml(segment_filters),
                 )
-            except WfsPaginationEndError:
-                segment_bbox = _bbox_from_filters(segment_filters) or fallback_bbox
-                if segment_bbox is not None and split_depth < 3:
-                    split_count = max(4, bbox_split if bbox_split > 1 else 4)
-                    child_boxes = split_bbox(segment_bbox, split_count)
-                    for child_box in child_boxes:
-                        pending_segments.append(
-                            (_replace_or_append_bbox_filter(segment_filters, child_box), split_depth + 1)
+            except WfsAutoSplitRetryableError as exc:
+                segment_bbox = _bbox_from_filters(segment_filters)
+                if input_bbox is None or segment_bbox is None:
+                    raise ValueError("BBOX 조건이 있을 때만 자동 분할을 수행할 수 있습니다.") from exc
+                if split_depth >= AUTO_SPLIT_MAX_DEPTH:
+                    stats["truncated_tiles"] += 1
+                    if progress_callback:
+                        progress_callback(
+                            (
+                                f"최대 depth({AUTO_SPLIT_MAX_DEPTH})에 도달한 영역은 "
+                                f"약 {WFS_TILE_TRUNCATION_HINT}건까지만 수집하고 추가 분할을 중단합니다. "
+                                f"(누적 제한 타일 {stats['truncated_tiles']}개)"
+                            ),
+                            min(30 + int((completed_segments / max(total_segments, 1)) * 40), 75),
                         )
+                    break
+
+                child_depth = split_depth + 1
+                child_boxes = split_bbox(segment_bbox, AUTO_SPLIT_TILE_COUNT)
+                for child_box in child_boxes:
+                    pending_segments.append(
+                        (_replace_or_append_bbox_filter(segment_filters, child_box), child_depth)
+                    )
+                total_segments += len(child_boxes)
+                stats["auto_split_events"] += 1
+                if progress_callback:
+                    total_hint = max(total_segments, completed_segments + len(pending_segments))
+                    progress_callback(
+                        f"BBOX 자동 분할 적용 (depth {child_depth}, 3x3 추가, 누적 타일 {total_hint})",
+                        min(22 + int((completed_segments / max(total_hint, 1)) * 40), 65),
+                    )
                 break
             page_features = payload.get("features", [])
             if not page_features:
@@ -360,11 +412,14 @@ def _collect_features(
             start_index += page_size
         completed_segments += 1
         if progress_callback:
-            total_hint = completed_segments + len(pending_segments) + 1
-            percent = 20 + int((completed_segments / total_hint) * 40)
-            progress_callback("WFS 데이터를 수집하는 중입니다.", min(percent, 60))
+            total_hint = max(total_segments, completed_segments + len(pending_segments))
+            percent = 20 + int((completed_segments / max(total_hint, 1)) * 40)
+            progress_callback(
+                f"WFS 타일 처리 완료 {completed_segments}/{total_hint}",
+                min(percent, 70),
+            )
 
-    return features
+    return features, stats
 
 
 def _load_catalog_dataframe(catalog_path: Path) -> pd.DataFrame:
@@ -430,7 +485,7 @@ def collect_vworld_layer(
     max_features: int | None = None,
     cancel_check: Callable[[], bool] | None = None,
     progress_callback: Callable[[str, int], None] | None = None,
-) -> tuple[Path, gpd.GeoDataFrame]:
+) -> tuple[Path, gpd.GeoDataFrame, dict[str, int]]:
     layer_map = _catalog_layers_by_typename(catalog_path)
     layer_info = layer_map.get(layer_typename)
     if layer_info is None:
@@ -445,15 +500,13 @@ def collect_vworld_layer(
 
     if progress_callback:
         progress_callback("WFS 요청을 준비하는 중입니다.", 10)
-    layer_bbox = _fetch_layer_wgs84_bbox(api_key=api_key, typename=typename)
 
-    features = _collect_features(
+    features, stats = _collect_features(
         api_key=api_key,
         typename=typename,
         srs_name=srs_name,
         filters=effective_filters,
         bbox_split=effective_split,
-        fallback_bbox=layer_bbox,
         page_size=VWORLD_PAGE_SIZE,
         max_features=max_features,
         cancel_check=cancel_check,
@@ -486,7 +539,7 @@ def collect_vworld_layer(
 
     if progress_callback:
         progress_callback("WFS 수집이 완료되었습니다.", 100)
-    return output_path, gdf
+    return output_path, gdf, stats
     if text.startswith("<"):
         try:
             root = ET.fromstring(text)

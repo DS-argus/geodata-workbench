@@ -991,7 +991,7 @@ def _run_wfs_job(job_id: int, request: WfsCollectionRequest) -> None:
                 message=normalized_message or None,
             )
 
-        output_path, gdf = collect_vworld_layer(
+        output_path, gdf, collect_stats = collect_vworld_layer(
             api_key=api_key,
             layer_typename=request.layer_key,
             output_format=request.output_format,
@@ -1029,13 +1029,24 @@ def _run_wfs_job(job_id: int, request: WfsCollectionRequest) -> None:
                 properties_schema_json=_serialize_schema(gdf),
             )
 
+            truncated_tiles = int((collect_stats or {}).get("truncated_tiles", 0))
+            api_calls = int((collect_stats or {}).get("api_calls", 0))
+            if truncated_tiles > 0:
+                final_progress_message = (
+                    f"WFS 수집이 완료되었습니다. "
+                    f"일부 영역은 최대 분할 깊이에 도달해 제한 수집되었습니다 "
+                    f"(제한 타일 {truncated_tiles}개 · API 요청 {api_calls}회)."
+                )
+            else:
+                final_progress_message = f"WFS 수집이 완료되었습니다. (API 요청 {api_calls}회)"
+
             update_job(
                 session,
                 job,
                 status="succeeded",
                 output_file_id=output_record.id,
                 progress_percent=100,
-                progress_message="WFS 수집이 완료되었습니다.",
+                progress_message=final_progress_message,
             )
     except WfsCollectionCancelledError as exc:
         with get_session() as session:
