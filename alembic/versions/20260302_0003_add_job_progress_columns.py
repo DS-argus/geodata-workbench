@@ -20,7 +20,10 @@ depends_on = None
 def upgrade() -> None:
     op.add_column("jobs", sa.Column("progress_percent", sa.Integer(), nullable=False, server_default="0"))
     op.add_column("jobs", sa.Column("progress_message", sa.Text(), nullable=True))
-    op.alter_column("jobs", "progress_percent", server_default=None)
+    bind = op.get_bind()
+    # SQLite does not support ALTER COLUMN DROP DEFAULT syntax directly.
+    if bind.dialect.name != "sqlite":
+        op.alter_column("jobs", "progress_percent", server_default=None)
 
 
 def downgrade() -> None:

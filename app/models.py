@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     pass
+
+
+JSON_DIALECT_AWARE = JSON().with_variant(JSONB(), "postgresql")
 
 
 class FileRecord(Base):
@@ -34,7 +37,7 @@ class JobRecord(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     input_file_id: Mapped[int | None] = mapped_column(ForeignKey("files.id"), nullable=True)
     output_file_id: Mapped[int | None] = mapped_column(ForeignKey("files.id"), nullable=True)
-    params_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    params_json: Mapped[dict | None] = mapped_column(JSON_DIALECT_AWARE, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     progress_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -51,8 +54,8 @@ class DatasetRecord(Base):
     file_id: Mapped[int] = mapped_column(ForeignKey("files.id"), nullable=False, unique=True)
     geom_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     feature_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    bbox: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    properties_schema_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    bbox: Mapped[dict | None] = mapped_column(JSON_DIALECT_AWARE, nullable=True)
+    properties_schema_json: Mapped[dict | None] = mapped_column(JSON_DIALECT_AWARE, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

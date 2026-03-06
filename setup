@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+set -eu
+
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 -m app.setup_cli "$@"
+fi
+
+if command -v python >/dev/null 2>&1; then
+  exec python -m app.setup_cli "$@"
+fi
+
+if command -v uv >/dev/null 2>&1; then
+  exec uv run python -m app.setup_cli "$@"
+fi
+
+echo "Python is required to run setup." >&2
+exit 1

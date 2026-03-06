@@ -18,6 +18,10 @@ branch_labels = None
 depends_on = None
 
 
+def _json_type() -> sa.JSON:
+    return sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql")
+
+
 def upgrade() -> None:
     op.create_table(
         "files",
@@ -38,7 +42,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=16), nullable=False),
         sa.Column("input_file_id", sa.Integer(), sa.ForeignKey("files.id"), nullable=True),
         sa.Column("output_file_id", sa.Integer(), sa.ForeignKey("files.id"), nullable=True),
-        sa.Column("params_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("params_json", _json_type(), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
@@ -50,8 +54,8 @@ def upgrade() -> None:
         sa.Column("file_id", sa.Integer(), sa.ForeignKey("files.id"), nullable=False, unique=True),
         sa.Column("geom_type", sa.String(length=64), nullable=True),
         sa.Column("feature_count", sa.Integer(), nullable=False),
-        sa.Column("bbox", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("properties_schema_json", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("bbox", _json_type(), nullable=True),
+        sa.Column("properties_schema_json", _json_type(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
 
