@@ -9,11 +9,14 @@ import pytest
 from app.setup_cli import (
     EnvironmentDetection,
     MODE_DATABASE_URLS,
+    allowed_modes,
+    detect_environment,
     recommend_mode,
     render_env_content,
     run,
     update_env_file,
     validate_mode,
+    validate_mode_allowed,
 )
 
 
@@ -72,6 +75,90 @@ def test_recommend_mode_uses_docker_on_non_windows_even_without_local_postgres()
     assert mode == "docker"
 
 
+def test_allowed_modes_on_non_windows_only_exposes_docker() -> None:
+    env = EnvironmentDetection(
+        has_docker=True,
+        has_docker_compose=True,
+        has_compose_file=True,
+        has_uv=True,
+        has_python=True,
+        has_node=True,
+        has_npm=True,
+        postgres_port_open=False,
+        is_windows=False,
+    )
+
+    assert allowed_modes(env) == ("docker",)
+    with pytest.raises(RuntimeError) as exc_info:
+        validate_mode_allowed(env, "local-pg")
+
+    assert "Docker Compose만 사용" in str(exc_info.value)
+
+
+def test_allowed_modes_on_windows_only_exposes_local_pg() -> None:
+    env = EnvironmentDetection(
+        has_docker=True,
+        has_docker_compose=True,
+        has_compose_file=True,
+        has_uv=True,
+        has_python=True,
+        has_node=True,
+        has_npm=True,
+        postgres_port_open=True,
+        is_windows=True,
+    )
+
+    assert allowed_modes(env) == ("local-pg",)
+    with pytest.raises(RuntimeError) as exc_info:
+        validate_mode_allowed(env, "docker")
+
+    assert "local-pg 모드만 사용" in str(exc_info.value)
+
+
+def test_detect_environment_requires_working_docker_compose_command() -> None:
+    commands: list[list[str]] = []
+
+    def fake_which(name: str) -> str | None:
+        return f"/usr/bin/{name}" if name == "docker" else None
+
+    def fake_command_succeeds(command: list[str]) -> bool:
+        commands.append(command)
+        return False
+
+    env = detect_environment(
+        project_root=Path("tmp"),
+        which=fake_which,
+        postgres_probe=lambda: False,
+        command_succeeds=fake_command_succeeds,
+    )
+
+    assert env.has_docker is True
+    assert env.has_docker_compose is False
+    assert commands == [["docker", "compose", "version"]]
+
+
+def test_detect_environment_accepts_legacy_docker_compose_command() -> None:
+    commands: list[list[str]] = []
+
+    def fake_which(name: str) -> str | None:
+        return f"/usr/bin/{name}" if name == "docker-compose" else None
+
+    def fake_command_succeeds(command: list[str]) -> bool:
+        commands.append(command)
+        return command == ["docker-compose", "version"]
+
+    env = detect_environment(
+        project_root=Path("tmp"),
+        which=fake_which,
+        postgres_probe=lambda: False,
+        command_succeeds=fake_command_succeeds,
+    )
+
+    assert env.has_docker is False
+    assert env.has_docker_compose is True
+    assert commands == [["docker-compose", "version"]]
+
+
 def test_render_env_content_overrides_database_url_and_preserves_existing_values() -> None:
     template = "\n".join(
         [
@@ -92,6 +179,7 @@ def test_render_env_content_overrides_database_url_and_preserves_existing_values
         [
             "DATABASE_URL=postgresql://old",
             "VWORLD_API_KEY=already-set",
+            "WFS_CATALOG_PATH=./wfs/catalog.xlsx",
             "CUSTOM_FLAG=1",
         ]
     )
@@ -103,6 +191,7 @@ def test_render_env_content_overrides_database_url_and_preserves_existing_values
     assert lines["VWORLD_API_KEY"] == "already-set"
     assert lines["PROJECT_ROOT"] == "."
     assert lines["APP_ENCRYPTION_KEY"] == ""
+    assert lines["WFS_CATALOG_PATH"] == "./resources/wfs/catalog.xlsx"
     assert lines["CUSTOM_FLAG"] == "1"
 
 
@@ -213,6 +302,25 @@ def test_setup_dry_run_does_not_modify_env_file() -> None:
 
         current_env = (tmp_root / ".env").read_text(encoding="utf-8")
         assert current_env == original_env + "\n"
+    finally:
+        import os
+
+        os.chdir(prev_cwd)
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
+def test_setup_dry_run_rejects_local_pg_on_non_windows_before_env_update() -> None:
+    tmp_root = (Path("tmp") / "test_setup_cli" / f"platform-{uuid.uuid4().hex}").resolve()
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    prev_cwd = Path.cwd()
+    try:
+        import os
+
+        os.chdir(tmp_root)
+        with pytest.raises(RuntimeError) as exc_info:
+            run(["--mode", "local-pg", "--dry-run"])
+        assert "Docker Compose만 사용" in str(exc_info.value)
+        assert not (tmp_root / ".env").exists()
     finally:
         import os
 

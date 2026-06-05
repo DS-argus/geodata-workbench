@@ -4,16 +4,67 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 export PYTHONPATH="$ROOT/apps/api${PYTHONPATH+:$PYTHONPATH}"
 
+show_help() {
+  cat <<'EOF'
+Usage: ./setup [--yes] [--dry-run]
+
+macOS/Linux setup always uses Docker Compose.
+For Windows local PostgreSQL setup, run: pwsh ./setup.ps1
+
+Options:
+  --yes       Run non-interactively.
+  --dry-run   Preview .env changes without writing.
+  -h, --help  Show this help message.
+EOF
+}
+
+expect_mode_value=false
+for arg do
+  if [ "$expect_mode_value" = true ]; then
+    if [ "$arg" != docker ]; then
+      echo "./setup only supports Docker mode on macOS/Linux." >&2
+      exit 2
+    fi
+    expect_mode_value=false
+    continue
+  fi
+
+  case "$arg" in
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    --mode)
+      expect_mode_value=true
+      ;;
+    --mode=docker)
+      ;;
+    --mode=*)
+      echo "./setup only supports Docker mode on macOS/Linux." >&2
+      exit 2
+      ;;
+    --pg-port|--port|--pg-port=*|--port=*)
+      echo "PostgreSQL port options are only for Windows local PostgreSQL setup." >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [ "$expect_mode_value" = true ]; then
+  echo "--mode requires a value: docker" >&2
+  exit 2
+fi
+
 if command -v uv >/dev/null 2>&1; then
-  exec uv run python -m app.setup_cli "$@"
+  exec uv run python -m app.setup_cli --mode docker "$@"
 fi
 
 if command -v python3 >/dev/null 2>&1; then
-  exec python3 -m app.setup_cli "$@"
+  exec python3 -m app.setup_cli --mode docker "$@"
 fi
 
 if command -v python >/dev/null 2>&1; then
-  exec python -m app.setup_cli "$@"
+  exec python -m app.setup_cli --mode docker "$@"
 fi
 
 echo "Python is required to run setup." >&2

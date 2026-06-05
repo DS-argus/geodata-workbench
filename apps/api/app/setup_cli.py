@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import socket
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,9 @@ ESSENTIAL_KEYS: tuple[str, ...] = (
     "PROJECT_ROOT",
     "VWORLD_API_KEY",
     "APP_ENCRYPTION_KEY",
+    "WFS_CATALOG_PATH",
+)
+TEMPLATE_SYNC_KEYS: tuple[str, ...] = (
     "WFS_CATALOG_PATH",
 )
 MODE_DATABASE_URLS: dict[Mode, str] = {
@@ -114,16 +118,39 @@ def _is_local_port_open(host: str, port: int, timeout: float = 0.2) -> bool:
         return False
 
 
+def _command_succeeds(command: list[str], timeout: float = 5.0) -> bool:
+    try:
+        subprocess.run(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+            timeout=timeout,
+        )
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _has_docker_compose(which: Callable[[str], str | None], command_succeeds: Callable[[list[str]], bool]) -> bool:
+    if which("docker") is not None and command_succeeds(["docker", "compose", "version"]):
+        return True
+    if which("docker-compose") is not None and command_succeeds(["docker-compose", "version"]):
+        return True
+    return False
+
+
 def detect_environment(
     project_root: Path | None = None,
     postgres_host: str = "localhost",
     postgres_port: int = 5432,
     which: Callable[[str], str | None] = shutil.which,
     postgres_probe: Callable[[], bool] | None = None,
+    command_succeeds: Callable[[list[str]], bool] = _command_succeeds,
 ) -> EnvironmentDetection:
     root = project_root or Path.cwd()
     has_docker = which("docker") is not None
-    has_docker_compose = has_docker or which("docker-compose") is not None
+    has_docker_compose = _has_docker_compose(which=which, command_succeeds=command_succeeds)
     has_compose_file = any((root / name).exists() for name in ("docker-compose.yml", "compose.yml", "compose.yaml"))
 
     if postgres_probe is None:
@@ -147,6 +174,20 @@ def recommend_mode(env: EnvironmentDetection) -> tuple[Mode, str]:
     if env.is_windows:
         return "local-pg", "Windows에서는 로컬 PostgreSQL과 로컬 Node/npm 실행을 사용합니다."
     return "docker", "macOS/Linux에서는 Docker Compose로 API, Web, PostgreSQL을 함께 실행합니다."
+
+
+def allowed_modes(env: EnvironmentDetection) -> tuple[Mode, ...]:
+    if env.is_windows:
+        return ("local-pg",)
+    return ("docker",)
+
+
+def validate_mode_allowed(env: EnvironmentDetection, mode: Mode) -> None:
+    if mode in allowed_modes(env):
+        return
+    if mode == "docker":
+        raise RuntimeError("Windows에서는 local-pg 모드만 사용합니다. 'pwsh ./setup.ps1'로 실행하세요.")
+    raise RuntimeError("local-pg 설정은 Windows 전용입니다. macOS/Linux에서는 Docker Compose만 사용하세요.")
 
 
 def _parse_env_lines(text: str) -> list[tuple[str, str]]:
@@ -230,6 +271,11 @@ def _merge_env_values(
         merged[key] = value
         if key not in existing_order:
             existing_order.append(key)
+
+    template_defaults = {key: value for key, value in template_items}
+    for key in TEMPLATE_SYNC_KEYS:
+        if key in template_defaults:
+            merged[key] = template_defaults[key]
 
     defaults = MODE_POSTGRES_DEFAULTS[mode]
     merged["POSTGRES_HOST"] = defaults["POSTGRES_HOST"]
@@ -395,9 +441,9 @@ def _port_arg(value: str) -> int:
 
 
 def validate_mode(env: EnvironmentDetection, mode: Mode, postgres_host: str = "localhost", postgres_port: int = 5432) -> None:
+    validate_mode_allowed(env, mode)
+
     if mode == "docker":
-        if env.is_windows:
-            raise RuntimeError("Windows에서는 local-pg 모드를 사용합니다. 'pwsh ./setup.ps1'로 실행하세요.")
         missing = []
         if not env.has_docker:
             missing.append("docker")
@@ -413,8 +459,6 @@ def validate_mode(env: EnvironmentDetection, mode: Mode, postgres_host: str = "l
         return
 
     if mode == "local-pg":
-        if not env.is_windows:
-            raise RuntimeError("local-pg 설정은 Windows 전용입니다. macOS/Linux에서는 Docker Compose를 사용하세요.")
         missing = []
         if not env.has_uv:
             missing.append("uv")
@@ -479,6 +523,7 @@ def run(argv: list[str] | None = None) -> int:
     _log("실행 환경을 확인합니다.")
     env = detect_environment(project_root=project_root, postgres_host=postgres_host, postgres_port=postgres_port)
     recommended, reason = recommend_mode(env)
+    permitted_modes = allowed_modes(env)
 
     _print_detection(env, postgres_host=postgres_host, postgres_port=postgres_port)
     print(f"\n추천 모드: {recommended} ({reason})")
@@ -487,12 +532,17 @@ def run(argv: list[str] | None = None) -> int:
     if args.mode:
         selected = args.mode
         _log(f"명시된 모드를 사용합니다: {selected}")
+    elif len(permitted_modes) == 1:
+        selected = permitted_modes[0]
+        _log(f"현재 OS에서는 {selected} 모드만 사용합니다.")
     elif args.yes or not sys.stdin.isatty():
         selected = recommended
         _log(f"추천 모드를 자동으로 사용합니다: {selected}")
     else:
         selected = _prompt_mode(recommended)
         _log(f"선택된 모드: {selected}")
+
+    validate_mode_allowed(env, selected)
 
     if args.dry_run:
         _log(".env 변경 미리보기를 수행합니다. 실제 파일은 수정하지 않습니다.")
