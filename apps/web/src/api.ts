@@ -24,13 +24,11 @@ export const fetchUploads = async (params: {
 
 export const createUploads = async (payload: {
   files: File[];
-  relativePaths: string[];
   displayNames: string[];
   outputFormat: "geoparquet" | "gpkg";
 }) => {
   const form = new FormData();
   payload.files.forEach((file) => form.append("files", file));
-  payload.relativePaths.forEach((value) => form.append("relative_paths", value));
   payload.displayNames.forEach((value) => form.append("display_names", value));
   form.append("output_format", payload.outputFormat);
   const { data } = await api.post("/uploads", form, {

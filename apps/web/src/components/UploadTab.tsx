@@ -234,9 +234,17 @@ export function UploadTab() {
       const path = (file as unknown as { webkitRelativePath?: string }).webkitRelativePath;
       return Boolean(path && path.includes("/"));
     });
+    if (hasFolderSelection) {
+      openErrorModal(
+        "폴더 업로드 미지원",
+        "폴더 업로드는 지원하지 않습니다.",
+        ["Shapefile은 .shp/.dbf/.shx/.prj 구성을 ZIP으로 압축해 업로드해 주세요."]
+      );
+      return;
+    }
 
     if (tabularFiles.length > 0) {
-      if (pickedFiles.length > 1 || hasFolderSelection) {
+      if (pickedFiles.length > 1) {
         openErrorModal(
           "CSV/Excel 업로드 방식 안내",
           "CSV/Excel은 한 번에 1개 파일만 업로드할 수 있습니다.",
@@ -253,18 +261,20 @@ export function UploadTab() {
       return;
     }
 
-    const relativePaths = pickedFiles.map((file) => {
-      const path = (file as unknown as { webkitRelativePath?: string }).webkitRelativePath;
-      return path && path.length > 0 ? path : file.name;
-    });
-    const displayNames = pickedFiles.map((file, index) => {
-      const relativePath = relativePaths[index];
-      if (relativePath.includes("/")) return "";
-      return file.name.replace(/\.[^.]+$/, "").trim();
-    });
+    const invalidFiles = pickedFiles.filter((file) => fileExtension(file.name) !== "zip");
+    if (invalidFiles.length > 0) {
+      openErrorModal(
+        "지원하지 않는 파일 형식",
+        "ZIP, CSV, XLSX, XLS 파일만 업로드할 수 있습니다.",
+        invalidFiles.map((file) => file.name)
+      );
+      return;
+    }
+
+    const displayNames = pickedFiles.map((file) => file.name.replace(/\.[^.]+$/, "").trim());
 
     setUploadNotice(`선택 ${pickedFiles.length}개 · 업로드 시작`);
-    uploadMutation.mutate({ files: pickedFiles, relativePaths, displayNames, outputFormat });
+    uploadMutation.mutate({ files: pickedFiles, displayNames, outputFormat });
   };
 
   return (
@@ -428,7 +438,7 @@ export function UploadTab() {
             <span className="upload-kicker">UPLOAD COMMAND CENTER</span>
             <h3>원본 업로드 & 즉시 변환</h3>
             <p className="section-help upload-section-help">
-              ZIP/폴더는 즉시 파이프라인으로 전달되고, CSV/Excel은 컬럼 분석 후 정확히 변환됩니다.
+              ZIP은 즉시 파이프라인으로 전달되고, CSV/Excel은 컬럼 분석 후 정확히 변환됩니다.
             </p>
           </div>
           <div className="upload-format-shell">
@@ -462,7 +472,7 @@ export function UploadTab() {
           <div className="upload-workflow-step">
             <span>01</span>
             <strong>원본 선택</strong>
-            <p>파일 또는 폴더를 선택하고 형식을 확인합니다.</p>
+            <p>ZIP 또는 CSV/Excel 파일을 선택하고 형식을 확인합니다.</p>
           </div>
           <div className="upload-workflow-step">
             <span>02</span>
@@ -495,39 +505,12 @@ export function UploadTab() {
               </span>
               <div>
                 <div className="upload-tile-title">파일 업로드</div>
-                <p>ZIP은 즉시 변환되고 CSV/Excel은 컬럼 지정 모달로 이어집니다.</p>
+                <p>Shapefile ZIP은 즉시 변환되고 CSV/Excel은 컬럼 지정 모달로 이어집니다.</p>
               </div>
             </div>
             <div className="upload-tile-foot">
               <span className="upload-tile-cta">파일 선택</span>
               <span className="upload-tile-meta">ZIP · CSV · XLSX · XLS</span>
-            </div>
-          </label>
-
-          <label className="upload-tile upload-tile-folder">
-            <input
-              className="file-hidden"
-              type="file"
-              multiple
-              disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
-              onChange={(e) => {
-                handleAutoUpload(e.target.files);
-                e.currentTarget.value = "";
-              }}
-              {...({ webkitdirectory: "", directory: "" } as any)}
-            />
-            <div className="upload-tile-head">
-              <span className="upload-tile-icon" aria-hidden="true">
-                ◉
-              </span>
-              <div>
-                <div className="upload-tile-title">폴더 업로드</div>
-                <p>Shapefile 구성(.shp/.dbf/.shx)이 있는 폴더를 그대로 가져옵니다.</p>
-              </div>
-            </div>
-            <div className="upload-tile-foot">
-              <span className="upload-tile-cta">폴더 선택</span>
-              <span className="upload-tile-meta">Shapefile Bundle</span>
             </div>
           </label>
         </div>

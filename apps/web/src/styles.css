@@ -413,7 +413,7 @@ button.compact {
 .upload-picker-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .upload-tile {
@@ -464,12 +464,6 @@ button.compact {
   font-size: 15px;
 }
 
-.upload-tile-folder .upload-tile-icon {
-  border-color: rgba(232, 184, 95, 0.58);
-  background: linear-gradient(160deg, #fff5de 0%, #ffe8b7 100%);
-  color: #80520f;
-}
-
 .upload-tile-title {
   margin-bottom: 4px;
   color: #173a5f;
@@ -508,12 +502,6 @@ button.compact {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
-}
-
-.upload-tile-folder .upload-tile-cta {
-  border-color: rgba(239, 205, 140, 0.8);
-  background: linear-gradient(180deg, #fff0cf 0%, #ffe1a7 100%);
-  color: #5d3d09;
 }
 
 .upload-tile-meta {
