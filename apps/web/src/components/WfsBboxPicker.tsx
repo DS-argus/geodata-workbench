@@ -160,7 +160,7 @@ export function WfsBboxPicker({ value, onChange }: WfsBboxPickerProps) {
         {displayedBbox ? (
           <Rectangle
             bounds={bboxToBounds(displayedBbox)}
-            pathOptions={{ color: "#2266d8", weight: 2, fillColor: "#2266d8", fillOpacity: 0.18 }}
+            pathOptions={{ color: "#2f6f5e", weight: 2, fillColor: "#6e9186", fillOpacity: 0.18 }}
           />
         ) : null}
       </MapContainer>

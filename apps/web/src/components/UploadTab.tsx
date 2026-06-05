@@ -178,7 +178,7 @@ export function UploadTab() {
           title="삭제"
           disabled={deleteMutation.isPending}
         >
-          🗑️
+          삭제
         </button>
       ),
       id: item.id,
@@ -435,10 +435,10 @@ export function UploadTab() {
       <div className="panel upload-studio-panel">
         <div className="upload-studio-head">
           <div className="upload-studio-copy">
-            <span className="upload-kicker">UPLOAD COMMAND CENTER</span>
-            <h3>원본 업로드 & 즉시 변환</h3>
+            <span className="upload-kicker">Import</span>
+            <h3>데이터 업로드</h3>
             <p className="section-help upload-section-help">
-              ZIP은 즉시 파이프라인으로 전달되고, CSV/Excel은 컬럼 분석 후 정확히 변환됩니다.
+              ZIP, CSV, Excel 원본을 변환하고 결과 목록을 갱신합니다.
             </p>
           </div>
           <div className="upload-format-shell">
@@ -452,7 +452,6 @@ export function UploadTab() {
                   disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
                 >
                   <span className="format-btn-title">GeoParquet</span>
-                  <span className="format-btn-sub">분석 최적</span>
                 </button>
                 <button
                   type="button"
@@ -461,28 +460,9 @@ export function UploadTab() {
                   disabled={uploadMutation.isPending || inspectMutation.isPending || submitTabularMutation.isPending}
                 >
                   <span className="format-btn-title">GPKG</span>
-                  <span className="format-btn-sub">호환 중점</span>
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-
-        <div className="upload-workflow" aria-hidden="true">
-          <div className="upload-workflow-step">
-            <span>01</span>
-            <strong>원본 선택</strong>
-            <p>ZIP 또는 CSV/Excel 파일을 선택하고 형식을 확인합니다.</p>
-          </div>
-          <div className="upload-workflow-step">
-            <span>02</span>
-            <strong>검증 & 분석</strong>
-            <p>Shapefile bundle·위경도 컬럼 유효성을 자동으로 확인합니다.</p>
-          </div>
-          <div className="upload-workflow-step">
-            <span>03</span>
-            <strong>즉시 변환</strong>
-            <p>성공 시 raw/data를 동기화 저장하고 결과를 즉시 갱신합니다.</p>
           </div>
         </div>
 
@@ -501,11 +481,11 @@ export function UploadTab() {
             />
             <div className="upload-tile-head">
               <span className="upload-tile-icon" aria-hidden="true">
-                ⬢
+                +
               </span>
               <div>
                 <div className="upload-tile-title">파일 업로드</div>
-                <p>Shapefile ZIP은 즉시 변환되고 CSV/Excel은 컬럼 지정 모달로 이어집니다.</p>
+                <p>Shapefile ZIP 또는 좌표 컬럼을 가진 표 형식 파일을 선택합니다.</p>
               </div>
             </div>
             <div className="upload-tile-foot">
@@ -545,7 +525,6 @@ export function UploadTab() {
 
         <div className="upload-results-head">
           <h3>업로드 목록 (원본 + 자동 변환 상태)</h3>
-          <span className="scroll-hint-badge table-scroll-hint">↔ 좌우 스크롤</span>
           <p className="section-help">업로드와 변환은 원자적으로 처리됩니다. 실패 시 저장되지 않습니다.</p>
         </div>
 

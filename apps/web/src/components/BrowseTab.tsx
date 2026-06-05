@@ -77,23 +77,23 @@ function vectorStyle(feature?: AnyFeature): PathOptions {
   const geometryType = feature?.geometry?.type;
   if (geometryType === "Polygon" || geometryType === "MultiPolygon") {
     return {
-      color: "#0f4bcc",
+      color: "#2f6f5e",
       weight: 1.4,
-      fillColor: "#1f6feb",
-      fillOpacity: 0.68
+      fillColor: "#6e9186",
+      fillOpacity: 0.58
     };
   }
   if (geometryType === "LineString" || geometryType === "MultiLineString") {
     return {
-      color: "#0f4bcc",
+      color: "#2f6f5e",
       weight: 2.6,
       opacity: 0.96
     };
   }
   return {
-    color: "#0f4bcc",
+    color: "#2f6f5e",
     weight: 1.4,
-    fillColor: "#1f6feb",
+    fillColor: "#6e9186",
     fillOpacity: 0.55
   };
 }
@@ -190,7 +190,6 @@ export function BrowseTab() {
         <div className="panel preview-panel browse-preview-panel">
           <div className="preview-head">
             <h3>Preview</h3>
-            <span className="scroll-hint-badge">↔ 좌우 스크롤</span>
           </div>
           <div className="preview-meta">
             {selectedDataset

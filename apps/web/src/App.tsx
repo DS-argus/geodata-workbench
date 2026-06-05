@@ -40,14 +40,7 @@ export default function App() {
       <header className="hero">
         <div className="hero-top">
           <h1>Geodata Workbench</h1>
-          <div className="hero-badges">
-            <span>LOCAL</span>
-            <span>WFS</span>
-            <span>POSTGRES</span>
-            <span>OSM</span>
-          </div>
         </div>
-        <p>로컬 업로드 즉시 변환 · WFS 수집 · 시각화를 한 화면에서</p>
       </header>
 
       <nav className="tabs" role="tablist" aria-label="메인 기능 탭">

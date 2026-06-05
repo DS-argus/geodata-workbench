@@ -195,7 +195,7 @@ export function WfsTab() {
           title="삭제"
           disabled={deleteMutation.isPending}
         >
-          🗑️
+          삭제
         </button>
       ),
       id: item.id,
@@ -569,7 +569,9 @@ export function WfsTab() {
 
       <div className="panel wfs-control-panel">
         <h3>WFS 수집</h3>
-        <p className="section-help">레이어를 선택한 뒤 수집 버튼에서 필터 조건(EQ/LIKE, AND/OR)을 설정합니다.</p>
+        <p className="section-help">
+          Vworld WFS API로 데이터를 수집합니다. 호출 가능 레이어는 내려받은 엑셀 파일을 통해 제공합니다.
+        </p>
 
         <div className={hasApiKey ? "wfs-inline-alert ok" : "wfs-inline-alert"}>
           <span>{hasApiKey ? `API 키 설정됨 (${configQuery.data?.key_masked})` : "API 키가 설정되지 않았습니다."}</span>
@@ -601,16 +603,20 @@ export function WfsTab() {
         <h3>호출 가능 레이어</h3>
         <div className="wfs-browser-grid">
           <div className="wfs-layer-list">
-            {layers.map((layer) => (
-              <button
-                key={layer.key}
-                className={layer.key === selectedLayerKey ? "wfs-layer-item active" : "wfs-layer-item"}
-                onClick={() => setSelectedLayerKey(layer.key)}
-              >
-                <strong>{layer.display_name}</strong>
-                <span>{layer.typename}</span>
-              </button>
-            ))}
+            {layers.length === 0 ? (
+              <div className="preview-empty">호출 가능 레이어가 없습니다.</div>
+            ) : (
+              layers.map((layer) => (
+                <button
+                  key={layer.key}
+                  className={layer.key === selectedLayerKey ? "wfs-layer-item active" : "wfs-layer-item"}
+                  onClick={() => setSelectedLayerKey(layer.key)}
+                >
+                  <strong>{layer.display_name}</strong>
+                  <span>{layer.typename}</span>
+                </button>
+              ))
+            )}
           </div>
           <div className="wfs-column-panel">
             {selectedLayer ? (
@@ -648,7 +654,6 @@ export function WfsTab() {
       <div className="panel wfs-results-panel">
         <div className="section-title-row">
           <h3>WFS 수집 결과</h3>
-          <span className="scroll-hint-badge table-scroll-hint">↔ 좌우 스크롤</span>
         </div>
         <p className="section-help">수집된 파일은 Browse & Map에서 동일하게 미리보기/시각화할 수 있습니다.</p>
         <DataTable
