@@ -25,3 +25,6 @@ tmp/
 upload-*.png
 ux-*.png
 wfs-*.png
+
+# Local sample datasets
+sample_data/
