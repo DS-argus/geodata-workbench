@@ -21,7 +21,7 @@
 ./setup
 ```
 
-```powershell
+```ps1
 # Windows PowerShell
 pwsh ./setup.ps1
 ```
@@ -41,7 +41,7 @@ docker compose up -d --build
 
 ### Windows
 
-```powershell
+```ps1
 # API
 uv sync
 uv run alembic -c apps/api/alembic.ini upgrade head
@@ -49,6 +49,7 @@ uv run uvicorn app.api:app --reload --port 8000
 
 # Web
 cd apps/web
+npm install
 npm run dev
 ```
 
@@ -87,7 +88,7 @@ uv run alembic -c apps/api/alembic.ini revision -m "설명"
 
 ## 7) Windows 로컬 개발
 
-```powershell
+```ps1
 uv sync
 uv run alembic -c apps/api/alembic.ini upgrade head
 uv run uvicorn app.api:app --reload --port 8000
@@ -109,7 +110,16 @@ npm run dev
 - WFS 카탈로그: `resources/wfs/`
 - 수동 수집 도구: `tools/collectors/`
 
-## 9) 품질 체크
+## 9) WFS 카탈로그 엑셀 교체
+
+- 기본 파일: `resources/wfs/브이월드_WFS_컬럼정보.xlsx`
+- Docker API 컨테이너 경로: `/workspace/resources/wfs/브이월드_WFS_컬럼정보.xlsx`
+- Docker 실행에서는 프로젝트 루트가 bind mount되므로, 같은 파일명으로 덮어쓰면 컨테이너 재빌드 없이 다음 `/wfs/layers` 조회부터 반영됩니다.
+- 파일명을 바꾸면 `WFS_CATALOG_PATH`도 바꿔야 하며, API 컨테이너를 재시작해야 합니다.
+- 필수 컬럼: `WFS명`, `WFS 한글명`, `컬럼명(영문)`, `컬럼명(한글)`
+- 위 컬럼명이 바뀌거나 빠지면 WFS 레이어 목록 조회와 수집 시작이 실패합니다.
+
+## 10) 품질 체크
 
 ```bash
 # Python 테스트
@@ -119,7 +129,7 @@ uv run pytest -q
 cd apps/web && npm run build
 ```
 
-## 10) 운영 메모
+## 11) 운영 메모
 
 - Upload에서 자동 변환이 실행되며 CSV/Excel은 위경도 컬럼 지정 후 변환됨
 - WFS 수집도 백그라운드 Job으로 실행되며 WFS 탭에서 중단 요청 가능

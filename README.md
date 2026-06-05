@@ -77,6 +77,9 @@ npm run dev
 - VWorld API 키를 UI에서 저장 후 재사용
   - `.env`의 `VWORLD_API_KEY`가 있으면 UI에 저장한 키보다 우선 사용
   - UI에서 입력한 VWorld API 키는 DB의 `app_secrets` 테이블에 암호화 저장
+- 호출 가능 레이어 목록은 `resources/wfs/브이월드_WFS_컬럼정보.xlsx`에서 읽음
+  - 같은 파일명으로 덮어쓰면 다음 레이어 목록 조회부터 반영됨
+  - 엑셀에는 `WFS명`, `WFS 한글명`, `컬럼명(영문)`, `컬럼명(한글)` 컬럼이 필요함
 - 레이어/출력 형식/SRSNAME 선택 후 즉시 수집
   - EQ/LIKE/BBOX 필터와 AND/OR 조합 지원
   - BBOX 조건 실패 시 3x3 자동 분할 재시도(최대 depth 3)
@@ -92,11 +95,47 @@ npm run dev
 
 ## 샘플 데이터
 
-- `sample_data/sample1.zip`: 토지이용계획도_경기 Shapefile ZIP
+- `sample_data/sample1.zip`: 토지이용계획도\_경기 Shapefile ZIP
 - `sample_data/sample2.csv`: 초중등학교위치 CSV
+
+## 동작 확인
+
+서버 실행 후 http://localhost:5173 에서 샘플 데이터로 기본 동작을 확인합니다.
+
+1. Upload 탭에서 `sample_data/sample1.zip` 업로드
+   - 변환 결과가 성공 상태로 표시되는지 확인
+   - Browse & Map 탭에서 변환 결과를 선택해 미리보기와 지도가 표시되는지 확인
+2. Upload 탭에서 `sample_data/sample2.csv` 업로드
+   - 위도/경도 컬럼 지정 팝업에서 적절한 컬럼을 선택
+   - 변환 결과와 지도 표시가 정상인지 확인
 
 ## 저장 위치
 
 - 원본 업로드: `rawdata/`
 - Upload 자동 변환 결과: `data/upload/`
 - WFS 수집 결과: `data/wfs/`
+
+## 완전 초기화
+
+초기화는 DB 메타데이터와 파일 저장소를 함께 지워야 완전합니다. 아래 명령은 삭제만 수행합니다. `rawdata/.gitkeep`, `data/.gitkeep`은 남겨 둡니다.
+
+### macOS / Linux (Docker)
+
+```bash
+docker compose down -v --remove-orphans
+find rawdata data -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
+```
+
+- 다시 시작하려면 `./setup`부터 다시 실행합니다.
+
+### Windows PowerShell (local-pg)
+
+```ps1
+# API/Web 서버를 먼저 중지한 뒤 실행
+Get-ChildItem rawdata -Force | Where-Object Name -ne ".gitkeep" | Remove-Item -Recurse -Force
+Get-ChildItem data -Force | Where-Object Name -ne ".gitkeep" | Remove-Item -Recurse -Force
+
+psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS geodata WITH (FORCE);"
+```
+
+- 다시 시작하려면 `pwsh ./setup.ps1`부터 다시 실행합니다.
