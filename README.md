@@ -90,6 +90,11 @@ npm run dev
 - Point는 Marker Cluster, Polygon은 진한 채움 스타일
 - Hover 툴팁, 지도 로딩 오버레이 제공
 
+## 샘플 데이터
+
+- `sample_data/sample1.zip`: 토지이용계획도_경기 Shapefile ZIP
+- `sample_data/sample2.csv`: 초중등학교위치 CSV
+
 ## 저장 위치
 
 - 원본 업로드: `rawdata/`
