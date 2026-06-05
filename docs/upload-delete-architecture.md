@@ -27,7 +27,7 @@ flowchart LR
 
 ## 3) Upload 버튼 클릭 시 동작
 
-### 3.1 ZIP/폴더 업로드 (`POST /uploads`)
+### 3.1 ZIP 업로드 (`POST /uploads`)
 
 ```mermaid
 sequenceDiagram
@@ -37,9 +37,9 @@ sequenceDiagram
   participant DATA as data/
   participant DB as PostgreSQL
 
-  UI->>API: 파일/폴더 + output_format
-  API->>API: 그룹화/유효성 검증
-  loop 그룹 단위 처리
+  UI->>API: ZIP 파일 + output_format
+  API->>API: ZIP 유효성 검증
+  loop 파일 단위 처리
     API->>RAW: 원본 저장
     API->>DB: INSERT files(category=raw)
     API->>DB: INSERT jobs(status=running, job_type=convert)
@@ -51,7 +51,7 @@ sequenceDiagram
   API-->>UI: 성공/실패 항목 반환
 ```
 
-- 실패 시(그룹 단위):
+- 실패 시(파일 단위):
   - raw/data 파일 정리
   - 연관 DB 레코드 정리
   - 결과적으로 "성공하면 둘 다 저장, 실패하면 둘 다 미저장" 원칙 유지
@@ -73,8 +73,7 @@ flowchart TD
   B --> C{file category}
   C -->|raw| D[원본 경로 수집]
   D --> E[jobs 기반 output_file_id 수집]
-  E --> F[fallback: 이름 prefix 기반 data orphan 수집]
-  F --> G[raw/data 실제 파일 삭제]
+  E --> G[raw/data 실제 파일 삭제]
   G --> H[DB files/jobs/datasets 정리 삭제]
   C -->|data| I[data 경로 수집]
   I --> G
@@ -84,9 +83,7 @@ flowchart TD
 
 1. raw 경로를 삭제 대상에 추가  
 2. `jobs.input_file_id == raw_id`인 변환 결과 data를 삭제 대상에 추가  
-3. 예외 케이스 보정:
-   - job 연결이 누락된 경우, 파일명 prefix 규칙으로 해당 raw의 data orphan를 추가 정리  
-4. 파일 삭제 후 `files/jobs/datasets` 연관 레코드 정리
+3. 파일 삭제 후 `files/jobs/datasets` 연관 레코드 정리
 
 ### data 삭제 시
 
@@ -96,8 +93,7 @@ flowchart TD
 ## 5) 정합성 원칙
 
 - 업로드/변환 실패 시 raw/data 미스매치가 남지 않도록 정리
-- 삭제 시 raw-data 간 연관을 최대한 따라가며 동시 정리
-- 과거 비정상 상태(job 연결 누락)도 fallback으로 정리
+- 삭제 시 raw-data 간 job 연관을 따라가며 동시 정리
 
 ## 6) 관련 코드 위치
 

@@ -1,12 +1,6 @@
 # Geodata Workbench
 
-공간데이터를 업로드하면 즉시 변환하고, 지도에서 바로 확인하는 로컬 워크벤치입니다.
-
-- Backend: FastAPI (Python)
-- Frontend: React + Vite
-- DB: PostgreSQL + PostGIS (메타데이터 저장)
-- 지도 타일: OpenStreetMap
-- WFS 수집: VWorld WFS
+공간데이터를 업로드해 GeoParquet 또는 GeoPackage(GPKG)로 변환하고, VWorld WFS에서 수집한 데이터를 지도에서 바로 확인하는 로컬 워크벤치입니다.
 
 ## 빠른 시작 (권장)
 
@@ -54,41 +48,39 @@ npm run dev
 
 ## 프로젝트 구조
 
-- Backend: `apps/api/app`
-- Frontend: `apps/web`
-- DB migration: `apps/api/alembic`
-- Collectors: `apps/api/app/collectors`
+- Backend/API: FastAPI (Python), `apps/api/app`
+- Frontend/Web: React + Vite, `apps/web`
+- DB/Migration: PostgreSQL/PostGIS(현재 메타데이터 저장) + Alembic, `apps/api/alembic`
 - WFS catalog: `resources/wfs`
 - 수동 수집 도구: `tools/collectors`
-
-## 입력 형식
-
-1. 공간데이터 구성 파일이 포함된 폴더 또는 ZIP
-
-- Shapefile 기준 `.shp`, `.dbf`, `.shx` (권장 `.prj`) 포함 필요
-
-2. 위도/경도 컬럼이 포함된 CSV 또는 Excel (`.xlsx`, `.xls`)
-
-- CSV/Excel은 파일 업로드에서 직접 선택
+- 지도 타일: OpenStreetMap
+- WFS 수집: VWorld WFS
 
 ## 탭별 기능
 
 ### Upload
 
-- 파일/폴더 업로드 시 원본 저장 후 자동 변환 실행
-- 출력 형식 선택 가능: `geoparquet`(기본) 또는 `gpkg`
-- CSV/Excel은 업로드 직후 팝업에서 위도/경도 컬럼 지정
-- CSV/Excel 입력 CRS는 `EPSG:4326`(고정)으로 처리
-- 업로드 목록에서 변환 상태/결과 파일/오류 확인 가능
+- Input
+  - Shapefile ZIP (`.shp`, `.dbf`, `.shx` 필수, `.prj` 권장)
+  - 위도/경도 컬럼이 있는 CSV/Excel
+- Output
+  - 선택한 형식으로 변환됨: GeoParquet(`.parquet`) 또는 GPKG(`.gpkg`)
+- 기능
+  - ZIP 업로드 시 `rawdata/`에 원본 저장 후 변환하여 `data/upload/`에 저장
+  - 출력 형식 선택 가능: `geoparquet`(기본) 또는 `gpkg`
+  - CSV/Excel은 업로드 직후 팝업에서 위도/경도 컬럼 지정
+  - CSV/Excel 입력 CRS는 `EPSG:4326`(고정)으로 처리
+  - 업로드 목록에서 변환 상태/결과 파일/오류 확인 가능
 
 ### WFS Collect
 
 - VWorld API 키를 UI에서 저장 후 재사용
-- `.env`의 `VWORLD_API_KEY`가 있으면 UI에 저장한 키보다 우선 사용
-- UI에서 입력한 VWorld API 키는 DB의 `app_secrets` 테이블에 암호화 저장
+  - `.env`의 `VWORLD_API_KEY`가 있으면 UI에 저장한 키보다 우선 사용
+  - UI에서 입력한 VWorld API 키는 DB의 `app_secrets` 테이블에 암호화 저장
 - 레이어/출력 형식/SRSNAME 선택 후 즉시 수집
-- EQ/LIKE/BBOX 필터 지원 (BBOX 조건 실패 시 3x3 자동 분할 재시도, 최대 depth 3)
-- 수집 결과를 `data/`에 바로 저장(GeoParquet 기본, GPKG 선택 가능)
+  - EQ/LIKE/BBOX 필터와 AND/OR 조합 지원
+  - BBOX 조건 실패 시 3x3 자동 분할 재시도(최대 depth 3)
+- 수집 결과를 `data/wfs/`에 바로 저장(GeoParquet 기본, GPKG 선택 가능)
 - 백그라운드 Job 실행 + 진행 중 중단 버튼 제공
 
 ### Browse & Map
@@ -101,4 +93,5 @@ npm run dev
 ## 저장 위치
 
 - 원본 업로드: `rawdata/`
-- Upload 자동 변환 및 WFS 수집 결과: `data/`
+- Upload 자동 변환 결과: `data/upload/`
+- WFS 수집 결과: `data/wfs/`
