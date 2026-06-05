@@ -126,6 +126,7 @@ docker compose down -v --remove-orphans
 find rawdata data -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
 ```
 
+- `data/upload`, `data/wfs` 같은 하위 폴더는 API 시작 시 자동 생성됩니다.
 - 다시 시작하려면 `./setup`부터 다시 실행합니다.
 
 ### Windows PowerShell (local-pg)
@@ -138,4 +139,5 @@ Get-ChildItem data -Force | Where-Object Name -ne ".gitkeep" | Remove-Item -Recu
 psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS geodata WITH (FORCE);"
 ```
 
+- `data/upload`, `data/wfs` 같은 하위 폴더는 API 시작 시 자동 생성됩니다.
 - 다시 시작하려면 `pwsh ./setup.ps1`부터 다시 실행합니다.
