@@ -10,39 +10,56 @@
 
 ## 빠른 시작 (권장)
 
+### macOS / Linux
+
 ```bash
 ./setup
 ```
 
-`./setup` 실행 시 환경을 점검하고 실행 모드를 안내/설정합니다.
+`./setup`은 Docker Compose 기반 실행을 기본값으로 설정합니다.
 
-### 실행 모드 선택 가이드
+```bash
+docker compose up -d --build
+```
 
-- `docker`: **가장 권장**. 로컬 의존성 설치를 최소화하고 팀 표준 환경으로 맞출 때
-- `local-pg`: Docker 없이 개발하되, 로컬 PostgreSQL/PostGIS를 이미 운영 중일 때
-- `local-lite`: PostgreSQL 없이 빠르게 기능 확인/개발할 때 (SQLite 기반)
+### Windows PowerShell
 
-> 참고: `local-lite`는 현재 핵심 기능 테스트용으로 지원합니다.  
-> 향후 PostGIS 의존 기능이 추가되면 일부 기능이 제한될 수 있습니다.
+Windows는 로컬 PostgreSQL/PostGIS, 로컬 Node/npm 실행을 기준으로 합니다.
+
+```ps1
+pwsh ./setup.ps1
+```
 
 ### setup 후 실행 명령 (요약)
 
 ```bash
-# Docker 모드(API+Web+DB)
+# macOS/Linux: API + Web + DB 컨테이너
 docker compose up -d --build
 ```
 
-```bash
-# API
+```ps1
+# Windows: 로컬 API
+uv sync
+uv run alembic -c apps/api/alembic.ini upgrade head
 uv run uvicorn app.api:app --reload --port 8000
 
-# Web
+# Windows: 로컬 Web
 cd apps/web
+npm install
 npm run dev
 ```
 
 - 웹 UI: http://localhost:5173
 - API 문서: http://localhost:8000/docs
+
+## 프로젝트 구조
+
+- Backend: `apps/api/app`
+- Frontend: `apps/web`
+- DB migration: `apps/api/alembic`
+- Collectors: `apps/api/app/collectors`
+- WFS catalog: `resources/wfs`
+- 수동 수집 도구: `tools/collectors`
 
 ## 입력 형식
 
@@ -67,6 +84,8 @@ npm run dev
 ### WFS Collect
 
 - VWorld API 키를 UI에서 저장 후 재사용
+- `.env`의 `VWORLD_API_KEY`가 있으면 UI에 저장한 키보다 우선 사용
+- UI에서 입력한 VWorld API 키는 DB의 `app_secrets` 테이블에 암호화 저장
 - 레이어/출력 형식/SRSNAME 선택 후 즉시 수집
 - EQ/LIKE/BBOX 필터 지원 (BBOX 조건 실패 시 3x3 자동 분할 재시도, 최대 depth 3)
 - 수집 결과를 `data/`에 바로 저장(GeoParquet 기본, GPKG 선택 가능)

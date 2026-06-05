@@ -3,11 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import requests
 
-from app.services.wfs_service import (
+from app.collectors.wfs import (
     WfsAutoSplitRetryableError,
-    _is_invalid_range_response,
     _collect_features,
+    _fetch_wfs_page,
+    _is_invalid_range_response,
+    _mask_url_secret,
     build_filter_xml,
     load_vworld_layer_catalog,
     split_bbox,
@@ -73,6 +76,45 @@ def test_invalid_range_response_detector() -> None:
     assert _is_invalid_range_response(xml) is True
 
 
+def test_mask_url_secret_redacts_vworld_key() -> None:
+    message = (
+        "HTTPSConnectionPool(host='api.vworld.kr', port=443): "
+        "Max retries exceeded with url: /req/wfs?KEY=REAL-SECRET&SERVICE=WFS&REQUEST=GetFeature"
+    )
+
+    masked = _mask_url_secret(message)
+
+    assert "REAL-SECRET" not in masked
+    assert "KEY=****" in masked
+    assert "SERVICE=WFS" in masked
+
+
+def test_fetch_wfs_page_masks_api_key_on_request_error(monkeypatch) -> None:
+    def fake_get(*args, **kwargs):
+        raise requests.exceptions.SSLError(
+            "HTTPSConnectionPool(host='api.vworld.kr', port=443): "
+            "Max retries exceeded with url: /req/wfs?KEY=REAL-SECRET&SERVICE=WFS"
+        )
+
+    monkeypatch.setattr("app.collectors.wfs.requests.get", fake_get)
+
+    try:
+        _fetch_wfs_page(
+            api_key="REAL-SECRET",
+            typename="lt_c_cademd",
+            srs_name="EPSG:5186",
+            start_index=0,
+            count=1000,
+            filter_xml=None,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        assert "REAL-SECRET" not in message
+        assert "KEY=****" in message
+    else:
+        raise AssertionError("requests 예외는 안전하게 마스킹된 ValueError로 변환되어야 합니다.")
+
+
 def test_collect_features_auto_splits_bbox_on_retryable_error(monkeypatch) -> None:
     original_bbox = (0.0, 0.0, 9.0, 9.0)
     filters = [{"type": "BBOX", "geom_column": "ag_geom", "bbox": list(original_bbox)}]
@@ -100,8 +142,8 @@ def test_collect_features_auto_splits_bbox_on_retryable_error(monkeypatch) -> No
             ]
         }
 
-    monkeypatch.setattr("app.services.wfs_service.build_filter_xml", fake_build_filter_xml)
-    monkeypatch.setattr("app.services.wfs_service._fetch_wfs_page", fake_fetch_wfs_page)
+    monkeypatch.setattr("app.collectors.wfs.build_filter_xml", fake_build_filter_xml)
+    monkeypatch.setattr("app.collectors.wfs._fetch_wfs_page", fake_fetch_wfs_page)
 
     features, stats = _collect_features(
         api_key="dummy",
@@ -124,7 +166,7 @@ def test_collect_features_retryable_without_bbox_fails(monkeypatch) -> None:
     def fake_fetch_wfs_page(**kwargs):
         raise WfsAutoSplitRetryableError("WFS 요청 시간 초과")
 
-    monkeypatch.setattr("app.services.wfs_service._fetch_wfs_page", fake_fetch_wfs_page)
+    monkeypatch.setattr("app.collectors.wfs._fetch_wfs_page", fake_fetch_wfs_page)
 
     try:
         _collect_features(
@@ -150,7 +192,7 @@ def test_collect_features_truncates_tile_when_auto_split_depth_limit_reached(mon
     def fake_fetch_wfs_page(**kwargs):
         raise WfsAutoSplitRetryableError("STARTINDEX 범위 초과(INVALID_RANGE)")
 
-    monkeypatch.setattr("app.services.wfs_service._fetch_wfs_page", fake_fetch_wfs_page)
+    monkeypatch.setattr("app.collectors.wfs._fetch_wfs_page", fake_fetch_wfs_page)
 
     features, stats = _collect_features(
         api_key="dummy",

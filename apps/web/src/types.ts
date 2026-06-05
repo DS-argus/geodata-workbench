@@ -30,15 +30,6 @@ export type PagedResponse<T> = {
   page_size: number;
 };
 
-export type ConvertOption = {
-  file_id: number;
-  name: string;
-  abs_path: string;
-  format: string;
-  id: number;
-  label: string;
-};
-
 export type WfsLayer = {
   key: string;
   display_name: string;

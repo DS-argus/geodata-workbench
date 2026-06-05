@@ -6,10 +6,10 @@
 
 ```mermaid
 flowchart LR
-  U[Web UI<br/>apps/web] -->|HTTP| A[FastAPI<br/>app/api.py]
-  A --> S1[Upload Service<br/>app/services/upload_service.py]
-  A --> S2[Conversion Service<br/>app/services/conversion_service.py]
-  A --> R[Repository<br/>app/repositories/records.py]
+  U[Web UI<br/>apps/web] -->|HTTP| A[FastAPI<br/>apps/api/app/api.py]
+  A --> S1[Upload Collector<br/>apps/api/app/collectors/uploads.py]
+  A --> S2[Conversion Service<br/>apps/api/app/services/conversion_service.py]
+  A --> R[Repository<br/>apps/api/app/repositories/records.py]
   R --> DB[(PostgreSQL)]
   S1 --> RAW[(rawdata/)]
   S2 --> DATA[(data/)]
@@ -65,7 +65,7 @@ sequenceDiagram
 
 ## 4) 삭제 버튼 클릭 시 동작
 
-삭제는 공통 함수 `app/api.py::_delete_file(file_id)`로 처리합니다.
+삭제는 공통 함수 `apps/api/app/api.py::_delete_file(file_id)`로 처리합니다.
 
 ```mermaid
 flowchart TD
@@ -101,11 +101,11 @@ flowchart TD
 
 ## 6) 관련 코드 위치
 
-- API 엔드포인트: `app/api.py`
+- API 엔드포인트: `apps/api/app/api.py`
   - 업로드: `POST /uploads`, `POST /uploads/tabular/*`
   - 삭제: `DELETE /uploads/{file_id}`, `DELETE /conversions/{file_id}`, `DELETE /wfs/collections/{file_id}`
   - 내부 삭제 로직: `_delete_file()`
-- 업로드 저장: `app/services/upload_service.py`
-- 변환 처리: `app/services/conversion_service.py`
-- DB CRUD: `app/repositories/records.py`
-- 세션/트랜잭션: `app/db.py`
+- 업로드 저장: `apps/api/app/collectors/uploads.py`
+- 변환 처리: `apps/api/app/services/conversion_service.py`
+- DB CRUD: `apps/api/app/repositories/records.py`
+- 세션/트랜잭션: `apps/api/app/db.py`

@@ -29,7 +29,7 @@ services:
       PROJECT_ROOT: /workspace
       VWORLD_API_KEY: ${VWORLD_API_KEY:-}
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-}
-      WFS_CATALOG_PATH: /workspace/wfs/브이월드_WFS_컬럼정보.xlsx
+      WFS_CATALOG_PATH: /workspace/resources/wfs/브이월드_WFS_컬럼정보.xlsx
     ports:
       - "8000:8000"
     volumes:

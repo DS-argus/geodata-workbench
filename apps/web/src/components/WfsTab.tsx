@@ -361,6 +361,7 @@ export function WfsTab() {
               </button>
             </div>
             <p className="section-help">API 키가 없으면 WFS 수집을 시작할 수 없습니다.</p>
+            <p className="section-help">서버 .env의 VWORLD_API_KEY가 설정돼 있으면 UI 저장값보다 우선 사용됩니다.</p>
             <label className="input-group">
               <span>API 키</span>
               <input

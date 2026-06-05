@@ -15,13 +15,11 @@ RUN pip install --no-cache-dir uv
 WORKDIR /workspace
 
 COPY pyproject.toml README.md ./
-COPY app ./app
-COPY alembic ./alembic
-COPY alembic.ini ./alembic.ini
-COPY wfs ./wfs
+COPY apps/api ./apps/api
+COPY resources ./resources
 
 RUN uv pip install --system --no-cache .
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.api:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic -c apps/api/alembic.ini upgrade head && uvicorn app.api:app --host 0.0.0.0 --port 8000"]

@@ -1,0 +1,23 @@
+* text=auto eol=lf
+
+# Shell scripts must stay LF for Unix, Docker, and WSL execution.
+*.sh text eol=lf
+setup text eol=lf
+
+# Windows command scripts may use CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary/data assets.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.xlsx binary
+*.xls binary
+*.parquet binary
+*.gpkg binary
+*.zip binary

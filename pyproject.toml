@@ -1,5 +1,5 @@
 [project]
-name = "geodata-dashboard"
+name = "geodata-workbench"
 version = "0.1.0"
 description = "Local geodata upload, conversion, and visualization dashboard"
 readme = "README.md"
@@ -34,8 +34,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["app", "app.services", "app.repositories", "app.ui"]
+package-dir = {"" = "apps/api"}
+packages = ["app", "app.collectors", "app.jobs", "app.services", "app.repositories"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = ["apps/api"]
 testpaths = ["tests"]

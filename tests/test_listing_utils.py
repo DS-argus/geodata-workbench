@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from app.ui.listing import apply_list_query, build_convert_option_items
+from app.listing import apply_list_query, build_convert_option_items
 
 
 def test_apply_list_query_filters_and_paginates() -> None:
