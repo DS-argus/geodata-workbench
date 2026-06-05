@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import shutil
-from collections.abc import Iterable
 from pathlib import Path
 from typing import BinaryIO
 
@@ -59,38 +58,5 @@ def save_uploaded_file(
         name=display_name,
         format=extension,
         size_bytes=file_size,
-    )
-    return record.id
-
-
-def save_uploaded_folder(
-    session: Session,
-    *,
-    folder_name: str,
-    file_entries: Iterable[tuple[BinaryIO, str]],
-    rawdata_dir: Path,
-) -> int:
-    safe_folder_name = _safe_relative_path(folder_name).name
-    folder_path = _deduplicate_path(rawdata_dir / safe_folder_name)
-    folder_path.mkdir(parents=True, exist_ok=True)
-
-    total_size = 0
-    file_count = 0
-    for file_obj, relative_path in file_entries:
-        safe_rel_path = _safe_relative_path(relative_path)
-        output_path = folder_path / safe_rel_path
-        total_size += _write_stream(file_obj, output_path)
-        file_count += 1
-
-    if file_count == 0:
-        raise ValueError("Folder upload did not include any files.")
-
-    record = create_file(
-        session,
-        category="raw",
-        path=str(folder_path),
-        name=safe_folder_name,
-        format="folder",
-        size_bytes=total_size,
     )
     return record.id

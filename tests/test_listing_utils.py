@@ -57,7 +57,7 @@ def test_apply_list_query_supports_like_pattern() -> None:
     assert page_df["name"].tolist() == ["road_main", "road_sub"]
 
 
-def test_build_convert_option_items_adds_folder_tags_for_duplicates(tmp_path: Path) -> None:
+def test_build_convert_option_items_adds_path_scope_tags_for_duplicates(tmp_path: Path) -> None:
     raw_root = tmp_path / "rawdata"
     raw_root.mkdir(parents=True)
 

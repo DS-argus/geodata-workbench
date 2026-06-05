@@ -52,16 +52,6 @@ def _has_shapefile_bundle(paths: list[Path]) -> bool:
 
 
 def _read_vector(input_path: Path) -> gpd.GeoDataFrame:
-    if input_path.is_dir():
-        shp_files = sorted(input_path.rglob("*.shp"))
-        all_files = [path for path in input_path.rglob("*") if path.is_file()]
-        if not _has_shapefile_bundle(all_files):
-            raise ValueError("Folder must contain a shapefile bundle (.shp/.dbf/.shx).")
-        if shp_files:
-            return gpd.read_file(shp_files[0])
-
-        raise ValueError("Folder does not include a supported vector dataset.")
-
     suffix = input_path.suffix.lower()
     if suffix == ".zip":
         with tempfile.TemporaryDirectory(prefix="gdd_zip_") as tmpdir:
@@ -75,7 +65,7 @@ def _read_vector(input_path: Path) -> gpd.GeoDataFrame:
                 raise ValueError("ZIP archive does not contain a .shp file.")
             return gpd.read_file(shp_files[0])
 
-    return gpd.read_file(input_path)
+    raise ValueError(f"Unsupported vector input format: {suffix}")
 
 
 def _read_csv(
@@ -228,7 +218,7 @@ def convert_file(
                     lon_col=csv_lon_col,
                     input_crs=csv_input_crs,
                 )
-        elif input_path.is_dir() or suffix in SUPPORTED_VECTOR_EXTENSIONS:
+        elif suffix in SUPPORTED_VECTOR_EXTENSIONS:
             gdf = _read_vector(input_path)
             if gdf.crs is None:
                 raise ValueError("Input vector data has no CRS. Please provide data with a valid CRS definition.")

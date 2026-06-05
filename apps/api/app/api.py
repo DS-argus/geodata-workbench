@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import math
 import io
-import re
 import shutil
 import zipfile
-from collections import defaultdict
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,7 +21,6 @@ from pydantic import BaseModel
 from app.collectors import (
     load_vworld_layer_catalog,
     save_uploaded_file,
-    save_uploaded_folder,
 )
 from app.config import get_settings
 from app.db import get_session
@@ -52,11 +51,17 @@ from app.services.storage_service import ensure_storage_dirs
 
 
 settings = get_settings()
-ensure_storage_dirs(settings.rawdata_dir, settings.data_dir, settings.data_upload_dir, settings.data_wfs_dir)
 SEOUL_TZ = ZoneInfo("Asia/Seoul")
-CONVERT_INPUT_FORMATS = {"csv", "xlsx", "xls", "zip", "folder"}
+CONVERT_INPUT_FORMATS = {"csv", "xlsx", "xls", "zip"}
 
-app = FastAPI(title="Geodata Workbench API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    ensure_storage_dirs(settings.rawdata_dir, settings.data_dir, settings.data_upload_dir, settings.data_wfs_dir)
+    yield
+
+
+app = FastAPI(title="Geodata Workbench API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -439,88 +444,6 @@ def _delete_path(path: Path) -> None:
         path.unlink()
 
 
-def _output_stem_prefix(raw_name: str) -> str:
-    stem = Path(raw_name).stem
-    cleaned = re.sub(r"[\\/:*?\"<>|]+", "_", stem)
-    slug = re.sub(r"\s+", "_", cleaned).strip("_")
-    return (slug or "dataset").lower()
-
-
-def _deduplicate_target_file(path: Path) -> Path:
-    if not path.exists():
-        return path
-    stem = path.stem
-    suffix = path.suffix
-    parent = path.parent
-    index = 1
-    while True:
-        candidate = parent / f"{stem}_{index}{suffix}"
-        if not candidate.exists():
-            return candidate
-        index += 1
-
-
-def _organize_legacy_data_records() -> None:
-    with get_session() as session:
-        data_rows = list_files(session, category="data")
-        jobs = list_jobs(session)
-        source_type_by_output: dict[int, str] = {}
-        for job in sorted(jobs, key=lambda value: value.created_at, reverse=True):
-            if job.status != "succeeded" or job.output_file_id is None:
-                continue
-            output_id = int(job.output_file_id)
-            if output_id in source_type_by_output:
-                continue
-            source_type_by_output[output_id] = "wfs" if job.job_type == "wfs_collect" else "local_convert"
-
-        data_root = settings.data_dir.resolve()
-        changed = False
-        for row in data_rows:
-            resolved_path = resolve_record_path(row.path, category_hint="data")
-            source_type = source_type_by_output.get(int(row.id), "local_convert")
-            target_root = settings.data_wfs_dir if source_type == "wfs" else settings.data_upload_dir
-            target_root.mkdir(parents=True, exist_ok=True)
-
-            try:
-                relative = resolved_path.resolve().relative_to(data_root)
-                top_folder = relative.parts[0].lower() if len(relative.parts) > 1 else ""
-                is_already_managed = top_folder in {"upload", "wfs"}
-            except Exception:
-                is_already_managed = False
-
-            if resolved_path.exists() and resolved_path.is_file():
-                target_path = target_root / resolved_path.name
-                if resolved_path.resolve() == target_path.resolve():
-                    normalized_path = str(target_path)
-                    if row.path != normalized_path:
-                        row.path = normalized_path
-                        changed = True
-                    continue
-                if is_already_managed:
-                    continue
-                if target_path.exists():
-                    target_path = _deduplicate_target_file(target_path)
-                try:
-                    shutil.move(str(resolved_path), str(target_path))
-                except Exception:
-                    continue
-                row.path = str(target_path)
-                row.name = target_path.name
-                row.format = target_path.suffix.lower().lstrip(".") or row.format
-                changed = True
-                continue
-
-            fallback = target_root / Path(row.path).name
-            if fallback.exists() and fallback.is_file():
-                row.path = str(fallback)
-                row.name = fallback.name
-                row.format = fallback.suffix.lower().lstrip(".") or row.format
-                changed = True
-
-        if changed:
-            session.flush()
-
-
 def _delete_file(file_id: int) -> None:
     target_paths: list[Path] = []
     ids_to_delete: list[int] = []
@@ -546,28 +469,6 @@ def _delete_file(file_id: int) -> None:
                 ids_to_delete.append(output_id)
                 target_paths.append(resolve_record_path(output_record.path, category_hint="data"))
 
-            # Fallback: if a converted output exists without a valid job link, still clean it up.
-            # This keeps rawdata/data behavior consistent when older records are mismatched.
-            stem_prefix = _output_stem_prefix(file_record.name)
-            data_rows = list_files(session, category="data")
-            for data_row in data_rows:
-                data_id = int(data_row.id)
-                if data_id in output_ids_linked_by_job:
-                    continue
-                if not str(data_row.name).lower().startswith(f"{stem_prefix}_"):
-                    continue
-                linked_to_other_raw = any(
-                    job.job_type == "convert"
-                    and job.output_file_id == data_id
-                    and job.input_file_id is not None
-                    and int(job.input_file_id) != file_id
-                    for job in jobs
-                )
-                if linked_to_other_raw:
-                    continue
-                ids_to_delete.append(data_id)
-                target_paths.append(resolve_record_path(data_row.path, category_hint="data"))
-
     try:
         seen_paths: set[str] = set()
         for path in target_paths:
@@ -584,71 +485,19 @@ def _delete_file(file_id: int) -> None:
             delete_file_and_related(session, target_id)
 
 
-def _cleanup_orphan_data_records() -> None:
-    with get_session() as session:
-        data_rows = list_files(session, category="data")
-        jobs = list_jobs(session)
-        referenced_output_ids = {int(job.output_file_id) for job in jobs if job.output_file_id is not None}
-        orphan_rows = [row for row in data_rows if int(row.id) not in referenced_output_ids]
-
-    for row in orphan_rows:
-        path = resolve_record_path(row.path, category_hint="data")
-        try:
-            _delete_path(path)
-        except Exception:
-            continue
-        with get_session() as session:
-            delete_file_and_related(session, int(row.id))
-
-
-_cleanup_orphan_data_records()
-_organize_legacy_data_records()
-
-
-def _safe_relative_path(relative_path: str) -> Path:
-    normalized = relative_path.replace("\\", "/")
-    parts = [part for part in Path(normalized).parts if part not in ("", ".", "..")]
-    return Path(*parts) if parts else Path("uploaded_file")
-
-
-def _group_upload_items(
-    files: list[UploadFile], relative_paths: list[str], display_names: list[str]
-) -> list[dict[str, Any]]:
-    folders: dict[str, list[tuple[int, UploadFile, str]]] = defaultdict(list)
-    singles: list[tuple[int, UploadFile, str]] = []
-
+def _build_upload_items(files: list[UploadFile], display_names: list[str]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
     for idx, upload in enumerate(files):
-        raw_rel = relative_paths[idx] if idx < len(relative_paths) and relative_paths[idx] else upload.filename
-        rel = _safe_relative_path(raw_rel or upload.filename or f"file_{idx}")
-        if len(rel.parts) > 1:
-            folder_name = rel.parts[0]
-            nested = str(Path(*rel.parts[1:]))
-            folders[folder_name].append((idx, upload, nested))
-        else:
-            singles.append((idx, upload, rel.name))
-
-    groups: list[dict[str, Any]] = []
-    for folder_name in sorted(folders):
-        groups.append(
-            {
-                "kind": "folder",
-                "name": folder_name,
-                "entries": [(upload.file, nested) for _, upload, nested in folders[folder_name]],
-                "count": len(folders[folder_name]),
-            }
-        )
-    for idx, upload, rel_name in singles:
+        file_name = Path(upload.filename or f"file_{idx}").name
         override_name = display_names[idx].strip() if idx < len(display_names) else ""
-        groups.append(
+        items.append(
             {
-                "kind": "file",
-                "name": rel_name,
+                "name": file_name,
                 "upload": upload,
-                "display_name": override_name or Path(rel_name).stem,
-                "count": 1,
+                "display_name": override_name or Path(file_name).stem,
             }
         )
-    return groups
+    return items
 
 
 def _has_shapefile_bundle(paths: list[str]) -> bool:
@@ -676,22 +525,16 @@ def _zip_has_shapefile_bundle(upload_file: UploadFile) -> bool:
         upload_file.file.seek(0)
 
 
-def _validate_upload_group(group: dict[str, Any]) -> tuple[bool, str]:
-    if group["kind"] == "folder":
-        rel_paths = [str(rel) for _, rel in group["entries"]]
-        if _has_shapefile_bundle(rel_paths):
-            return True, ""
-        return False, "폴더에는 .shp/.dbf/.shx(권장 .prj) 구성 파일이 필요합니다."
-
-    file_name = str(group["name"])
+def _validate_upload_item(item: dict[str, Any]) -> tuple[bool, str]:
+    file_name = str(item["name"])
     suffix = Path(file_name).suffix.lower()
-    if suffix in {".csv", ".xlsx", ".xls"}:
-        return True, ""
     if suffix == ".zip":
-        if _zip_has_shapefile_bundle(group["upload"]):
+        if _zip_has_shapefile_bundle(item["upload"]):
             return True, ""
         return False, "ZIP 내부에 .shp/.dbf/.shx(권장 .prj) 구성 파일이 필요합니다."
-    return False, "직접 업로드는 csv/xlsx/xls/zip만 지원합니다."
+    if suffix in {".csv", ".xlsx", ".xls"}:
+        return False, "CSV/Excel은 컬럼 지정 팝업을 통해 업로드해 주세요."
+    return False, "직접 업로드는 zip만 지원합니다."
 
 
 def _read_tabular_preview(path: Path, fmt: str) -> pd.DataFrame:
@@ -852,61 +695,46 @@ def list_uploads(
 @app.post("/uploads")
 async def create_uploads(
     files: list[UploadFile] = File(...),
-    relative_paths: list[str] | None = Form(default=None),
     display_names: list[str] | None = Form(default=None),
     output_format: str = Form(default="geoparquet"),
 ) -> dict[str, Any]:
     if output_format not in {"geoparquet", "gpkg"}:
         raise HTTPException(status_code=400, detail="출력 형식은 geoparquet 또는 gpkg 이어야 합니다.")
 
-    rels = relative_paths or []
     names = display_names or []
-    groups = _group_upload_items(files, rels, names)
-    if not groups:
+    items = _build_upload_items(files, names)
+    if not items:
         raise HTTPException(status_code=400, detail="업로드할 파일이 없습니다.")
 
     errors: list[str] = []
-    for group in groups:
-        valid, reason = _validate_upload_group(group)
+    for item in items:
+        valid, reason = _validate_upload_item(item)
         if not valid:
-            errors.append(f"{group['name']}: {reason}")
+            errors.append(f"{item['name']}: {reason}")
     if errors:
         raise HTTPException(status_code=400, detail={"message": "유효하지 않은 업로드 항목", "errors": errors})
 
     created_ids: list[int] = []
     success_items: list[dict[str, Any]] = []
     failed_items: list[dict[str, Any]] = []
-    for group in groups:
+    for item in items:
         raw_path_for_cleanup: Path | None = None
         raw_id_for_cleanup: int | None = None
-        group_name = str(group.get("display_name") or group["name"])
+        item_name = str(item.get("display_name") or item["name"])
         try:
             with get_session() as session:
-                if group["kind"] == "folder":
-                    file_id = save_uploaded_folder(
-                        session,
-                        folder_name=group["name"],
-                        file_entries=group["entries"],
-                        rawdata_dir=settings.rawdata_dir,
-                    )
-                    raw_format = "folder"
-                else:
-                    file_id = save_uploaded_file(
-                        session,
-                        uploaded_name=group["name"],
-                        display_name=group["display_name"],
-                        file_obj=group["upload"].file,
-                        rawdata_dir=settings.rawdata_dir,
-                    )
-                    raw_format = Path(str(group["name"])).suffix.lower().lstrip(".")
+                file_id = save_uploaded_file(
+                    session,
+                    uploaded_name=item["name"],
+                    display_name=item["display_name"],
+                    file_obj=item["upload"].file,
+                    rawdata_dir=settings.rawdata_dir,
+                )
 
                 raw_id_for_cleanup = int(file_id)
                 raw_record = get_file(session, int(file_id))
                 if raw_record:
                     raw_path_for_cleanup = resolve_record_path(raw_record.path, category_hint="rawdata")
-
-                if raw_format in {"csv", "xlsx", "xls"}:
-                    raise ValueError("CSV/Excel 파일은 컬럼 지정 팝업을 통해 업로드해 주세요.")
 
                 try:
                     output_file_id = convert_file(
@@ -924,11 +752,11 @@ async def create_uploads(
                 {
                     "file_id": int(raw_id_for_cleanup),
                     "output_file_id": int(output_file_id),
-                    "name": group_name,
+                    "name": item_name,
                 }
             )
         except Exception as exc:
-            # Atomic behavior: if conversion fails, remove raw file/folder too.
+            # Atomic behavior: if conversion fails, remove the raw file too.
             if raw_path_for_cleanup is not None:
                 try:
                     _delete_path(raw_path_for_cleanup)
@@ -942,7 +770,7 @@ async def create_uploads(
                     pass
             failed_items.append(
                 {
-                    "name": group_name,
+                    "name": item_name,
                     "message": str(exc),
                     "user_message": _friendly_upload_error(str(exc)),
                 }

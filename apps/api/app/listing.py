@@ -66,7 +66,7 @@ def apply_list_query(
     return filtered.iloc[start:end].copy(), total_items, total_pages
 
 
-def _top_folder_tag(abs_path: str, rawdata_dir: Path) -> str:
+def _path_scope_tag(abs_path: str, rawdata_dir: Path) -> str:
     path = Path(abs_path)
     try:
         relative = path.resolve().relative_to(rawdata_dir.resolve())
@@ -101,17 +101,17 @@ def build_convert_option_items(raw_df: pd.DataFrame, rawdata_dir: Path) -> list[
     for item in items:
         name_counts[item["name"]] = name_counts.get(item["name"], 0) + 1
 
-    folder_index_map: dict[tuple[str, str], int] = {}
+    scope_index_map: dict[tuple[str, str], int] = {}
     for item in items:
         name = item["name"]
         if name_counts[name] == 1:
             item["label"] = f"{name} ({item['format']})"
             continue
 
-        folder_tag = _top_folder_tag(item["abs_path"], rawdata_dir)
-        key = (name, folder_tag)
-        folder_index_map[key] = folder_index_map.get(key, 0) + 1
-        idx = folder_index_map[key]
-        item["label"] = f"{name} · {folder_tag}#{idx} ({item['format']})"
+        scope_tag = _path_scope_tag(item["abs_path"], rawdata_dir)
+        key = (name, scope_tag)
+        scope_index_map[key] = scope_index_map.get(key, 0) + 1
+        idx = scope_index_map[key]
+        item["label"] = f"{name} · {scope_tag}#{idx} ({item['format']})"
 
     return items
