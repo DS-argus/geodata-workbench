@@ -12,7 +12,10 @@ settings = get_settings()
 
 
 def _engine_kwargs(database_url: str) -> dict:
-    return {"pool_pre_ping": True}
+    kwargs = {"pool_pre_ping": True}
+    if database_url.startswith("postgresql"):
+        kwargs["connect_args"] = {"connect_timeout": 3}
+    return kwargs
 
 
 engine = create_engine(settings.database_url, **_engine_kwargs(settings.database_url))
