@@ -2,6 +2,20 @@
 
 공간데이터를 업로드해 GeoParquet 또는 GeoPackage(GPKG)로 변환하고, VWorld WFS에서 수집한 데이터를 지도에서 바로 확인하는 로컬 워크벤치입니다.
 
+## UI 미리보기
+
+### Upload
+
+![Upload 탭](docs/screenshots/upload-tab.png)
+
+### WFS Collect
+
+![WFS Collect 탭](docs/screenshots/wfs-collect-tab.png)
+
+### Browse & Map
+
+![Browse & Map 탭](docs/screenshots/browse-map-tab.png)
+
 ## 빠른 시작 (권장)
 
 ### macOS / Linux
